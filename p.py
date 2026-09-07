@@ -11,6 +11,8 @@ from selenium.webdriver.common.action_chains import ActionChains
 try:
     import undetected_chromedriver as uc
     HAS_UC = True
+    # Monkeypatch uc.Chrome.__del__ to suppress WinError 6 on Windows garbage collection
+    uc.Chrome.__del__ = lambda self: None
 except ImportError:
     HAS_UC = False
 
@@ -103,15 +105,12 @@ def create_humanoid_driver(headless=False):
 def humanoid_mouse_and_scroll(driver):
     """
     Simulates gentle human-like mouse movements and natural scrolling.
-    Does not spam DOM elements or trigger bot detection heuristics.
     """
     try:
-        # Subtle random mouse jiggle
         actions = ActionChains(driver)
         actions.move_by_offset(random.randint(10, 50), random.randint(10, 50)).perform()
         time.sleep(random.uniform(0.5, 1.2))
         
-        # Smooth scroll
         total_height = int(driver.execute_script("return document.body.scrollHeight"))
         if total_height > 500:
             scroll_target = random.randint(200, min(800, total_height))
@@ -121,18 +120,14 @@ def humanoid_mouse_and_scroll(driver):
     except Exception:
         pass
 
-def wait_for_human_page_load(driver, wait_seconds=10):
+def wait_for_human_page_load(driver, wait_seconds=8):
     """
     Waits naturally like a human user opening a webpage.
-    Avoids aggressive polling loops that cause Cloudflare to stay in infinite loading mode.
     """
     print(f"[*] ☕ Waiting {wait_seconds}s for natural page render & Cloudflare check...")
     
-    # Natural delay for Cloudflare verification to render
     time.sleep(4)
     humanoid_mouse_and_scroll(driver)
-    
-    # Remaining wait
     time.sleep(max(1, wait_seconds - 4))
 
 def format_abstract_text(text):
@@ -395,10 +390,6 @@ def process_links(link_items, headless=False, disable_images=False, wait_time=8,
     print(f"==================================================================\n")
 
     driver = create_humanoid_driver(headless=headless)
-    
-    # Prevent WinError 6 on garbage collection
-    if hasattr(driver, '__del__'):
-        driver.__del__ = lambda: None
 
     results = []
     try:
