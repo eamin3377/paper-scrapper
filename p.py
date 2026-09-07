@@ -119,12 +119,17 @@ def humanoid_mouse_and_scroll(driver):
 def format_abstract_text(text):
     """
     Formats abstract text cleanly:
+    - Slices strictly starting from 'Abstract' or body text.
     - Excludes trailing Keywords, Graphical Abstracts, and UI metadata lines.
     - Adds double spacing before section headings.
     """
     if not text:
         return "N/A"
     
+    # Slice text starting from 'Abstract' if present
+    if "Abstract" in text:
+        text = text[text.find("Abstract"):]
+
     # 1. Strip out UI buttons/navigation text & Keywords / Graphical Abstract / Registration sections
     text = re.sub(r'(?i)\b(?:first_page|settings|Order Article Reprints|Open Access|Download|keyboard_arrow_down|Browse Figures|Versions|Notes)\b', '', text)
     text = re.sub(r'(?is)\bKeywords?:.*$', '', text)
@@ -147,7 +152,6 @@ def clean_title_text(text):
     """
     if not text:
         return ""
-    # Strip UI navigation badges
     cleaned = re.sub(r'^(?:first_page|settings|Order\s+Article\s+Reprints|Open\s+AccessReview|Open\s+Access|Review|Article|Communication|Editorial)\s*', '', text, flags=re.IGNORECASE).strip()
     return cleaned
 
@@ -317,11 +321,15 @@ def extract_cell_data(driver):
 
 def extract_mdpi_data(driver):
     """
-    Extracts structured paper details from MDPI (mdpi.com), excluding UI navigation badges.
+    Extracts structured paper details from MDPI (mdpi.com).
+    - Title: h1.title / h1[itemprop='name']
+    - Authors: div.art-authors -> div.profile-card-drop
+    - Publication Date: span (starts with "Published:") or meta citation_publication_date
+    - Abstract: div.html-p / section.html-abstract / #html-abstract
     """
     data = {}
     
-    # 1. Title (Cleaned of UI badges like first_page, settings, Order Article Reprints, Open AccessReview)
+    # 1. Title
     try:
         title_elem = driver.find_element(By.CSS_SELECTOR, "h1.title, h1[itemprop='name'], h1")
         data["title"] = clean_title_text(title_elem.text.strip())
@@ -373,10 +381,23 @@ def extract_mdpi_data(driver):
     except Exception:
         data["published_date"] = "N/A"
 
-    # 4. Abstract
+    # 4. Abstract (Targets div.html-p directly or section.html-abstract)
     try:
-        abs_elem = driver.find_element(By.CSS_SELECTOR, "div.html-p, section.html-abstract, #html-abstract, section.art-abstract, div.art-abstract, div.abstract_div")
-        data["abstract"] = format_abstract_text(abs_elem.text.strip())
+        raw_text = ""
+        try:
+            abs_elem = driver.find_element(By.CSS_SELECTOR, "div.html-p, section.html-abstract div.html-p, div.art-abstract div.html-p")
+            raw_text = abs_elem.text.strip()
+        except Exception:
+            abs_elem = driver.find_element(By.CSS_SELECTOR, "section.html-abstract, #html-abstract, section.art-abstract, div.art-abstract, div.abstract_div")
+            raw_text = abs_elem.text.strip()
+        
+        # Ensure abstract begins with 'Abstract' and excludes any preceding header block
+        if "Abstract" in raw_text:
+            raw_text = raw_text[raw_text.find("Abstract"):]
+        else:
+            raw_text = "Abstract\n\n" + raw_text
+
+        data["abstract"] = format_abstract_text(raw_text)
     except Exception:
         data["abstract"] = "N/A"
 
