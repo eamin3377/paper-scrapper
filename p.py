@@ -123,7 +123,8 @@ def wait_for_captcha_and_content(driver, selectors, timeout=15):
 
 def click_cloudflare_checkbox_humanoid(driver):
     """
-    Looks for Cloudflare Turnstile / challenge iframe and performs a natural humanoid mouse move and click on the checkbox.
+    Locates the exact Cloudflare Turnstile checkbox (<input type="checkbox" aria-label="Verify you are human">)
+    and performs realistic human-like mouse movement and click.
     """
     try:
         title = driver.title.lower()
@@ -132,21 +133,46 @@ def click_cloudflare_checkbox_humanoid(driver):
 
         print("[*] 🚨 Cloudflare CAPTCHA Verification Page Detected!")
         
-        # Search all visible iframes on page (Cloudflare Turnstile is inside an iframe)
+        # Function to attempt human-like click on target checkbox element
+        def perform_human_click(elem):
+            try:
+                actions = ActionChains(driver)
+                # Gentle human jitter before hover
+                actions.move_by_offset(random.randint(-15, 15), random.randint(-15, 15)).pause(random.uniform(0.2, 0.4))
+                actions.move_to_element(elem).pause(random.uniform(0.4, 0.9))
+                actions.click().perform()
+                print("[*] 🖱️ Humanoid click performed on 'Verify you are human' checkbox!")
+                return True
+            except Exception:
+                try:
+                    driver.execute_script("arguments[0].click();", elem)
+                    return True
+                except Exception:
+                    pass
+            return False
+
+        # 1. Search inside all iframes for <input type="checkbox" aria-label="Verify you are human">
         iframes = driver.find_elements(By.TAG_NAME, "iframe")
         for iframe in iframes:
             try:
                 driver.switch_to.frame(iframe)
-                # Look for checkbox element inside Turnstile iframe
-                checkboxes = driver.find_elements(By.CSS_SELECTOR, "input[type='checkbox'], .ctp-checkbox-label, #challenge-stage, .mark")
-                if checkboxes:
-                    cb = checkboxes[0]
-                    print("[*] 🖱️ Found Cloudflare checkbox! Performing humanoid click...")
-                    actions = ActionChains(driver)
-                    actions.move_to_element(cb).pause(random.uniform(0.3, 0.7)).click().perform()
-                    driver.switch_to.default_content()
-                    time.sleep(2)
-                    return True
+                selectors = [
+                    "input[type='checkbox'][aria-label='Verify you are human']",
+                    "input[type='checkbox'][aria-label*='Verify']",
+                    "input[type='checkbox']",
+                    ".ctp-checkbox-label",
+                    "label.ctp-checkbox-label span",
+                    "#challenge-stage input"
+                ]
+                for sel in selectors:
+                    checkboxes = driver.find_elements(By.CSS_SELECTOR, sel)
+                    if checkboxes:
+                        cb = checkboxes[0]
+                        if cb.is_displayed() or True:
+                            if perform_human_click(cb):
+                                driver.switch_to.default_content()
+                                time.sleep(3)
+                                return True
                 driver.switch_to.default_content()
             except Exception:
                 try:
@@ -154,17 +180,19 @@ def click_cloudflare_checkbox_humanoid(driver):
                 except Exception:
                     pass
 
-        # Fallback: try clicking anywhere near Turnstile container in main document
-        try:
-            cb_main = driver.find_element(By.CSS_SELECTOR, "div.cf-turnstile, #challenge-stage, .ctp-checkbox-container")
-            if cb_main:
-                print("[*] 🖱️ Performing humanoid click on Cloudflare container...")
-                actions = ActionChains(driver)
-                actions.move_to_element(cb_main).pause(random.uniform(0.3, 0.6)).click().perform()
-                time.sleep(2)
-                return True
-        except Exception:
-            pass
+        # 2. Search main document for <input type="checkbox" aria-label="Verify you are human">
+        selectors_main = [
+            "input[type='checkbox'][aria-label='Verify you are human']",
+            "input[type='checkbox'][aria-label*='Verify']",
+            "div.cf-turnstile input[type='checkbox']",
+            "#challenge-stage input[type='checkbox']"
+        ]
+        for sel in selectors_main:
+            cb_elems = driver.find_elements(By.CSS_SELECTOR, sel)
+            if cb_elems:
+                if perform_human_click(cb_elems[0]):
+                    time.sleep(3)
+                    return True
 
     except Exception as e:
         try:
