@@ -264,6 +264,95 @@ def extract_sciencedirect_data(driver):
 
     return data
 
+def extract_tandfonline_data(driver):
+    """
+    Extracts structured paper details from Taylor & Francis Online (tandfonline.com).
+    - Title: span.NLM_article-title, h1.article-title
+    - Authors: div.hlFld-ContribAuthor div.entryAuthor a.author (e.g. Hamid Cheraghali, Peter Molnár)
+    - Publication Date: span (containing "Published online:"), meta[name='citation_publication_date']
+    - Abstract: div.hlFld-Abstract, div#abstractId1
+    """
+    data = {}
+    
+    # 1. Title
+    try:
+        title_elem = driver.find_element(By.CSS_SELECTOR, "span.NLM_article-title, h1.article-title, h1")
+        # Strip badge text if present inside title span
+        raw_title = driver.execute_script("""
+            var elem = arguments[0].cloneNode(true);
+            var badges = elem.querySelectorAll('.open_science_badges, .badge');
+            badges.forEach(b => b.remove());
+            return elem.innerText || elem.textContent;
+        """, title_elem)
+        data["title"] = raw_title.strip() if raw_title else title_elem.text.strip()
+    except Exception:
+        data["title"] = driver.title
+
+    # 2. Authors
+    try:
+        author_names = []
+        author_elems = driver.find_elements(By.CSS_SELECTOR, "div.hlFld-ContribAuthor div.entryAuthor a.author, div.entryAuthor a.author")
+        for elem in author_elems:
+            raw_name = driver.execute_script("return arguments[0].innerText || arguments[0].textContent;", elem)
+            clean_name = raw_name.strip() if raw_name else ""
+            if clean_name and clean_name not in author_names:
+                author_names.append(clean_name)
+
+        if not author_names:
+            links = driver.find_elements(By.CSS_SELECTOR, "a.author")
+            for a in links:
+                raw_name = driver.execute_script("return arguments[0].innerText || arguments[0].textContent;", a)
+                clean_name = raw_name.strip() if raw_name else ""
+                if clean_name and clean_name not in author_names:
+                    author_names.append(clean_name)
+
+        data["authors"] = author_names
+    except Exception:
+        data["authors"] = []
+
+    # 3. Publication Date
+    try:
+        date_str = "N/A"
+        try:
+            spans = driver.find_elements(By.CSS_SELECTOR, "span")
+            for s in spans:
+                if "Published online:" in s.text:
+                    date_str = s.text.replace("Published online:", "").strip()
+                    break
+        except Exception:
+            pass
+
+        if date_str == "N/A":
+            meta_date = driver.find_element(By.CSS_SELECTOR, "meta[name='citation_publication_date'], meta[name='dc.Date']")
+            date_str = meta_date.get_attribute("content")
+
+        data["published_date"] = date_str
+    except Exception:
+        data["published_date"] = "N/A"
+
+    # 4. Abstract
+    try:
+        raw_text = ""
+        try:
+            abs_elem = driver.find_element(By.CSS_SELECTOR, "div.hlFld-Abstract, div[id*='abstract'], div#abstractId1")
+            raw_text = abs_elem.text.strip()
+        except Exception:
+            abs_elem = driver.find_element(By.CSS_SELECTOR, "div.abstract, section.abstract")
+            raw_text = abs_elem.text.strip()
+
+        if "ABSTRACT" in raw_text:
+            raw_text = raw_text[raw_text.find("ABSTRACT"):]
+        elif "Abstract" in raw_text:
+            raw_text = raw_text[raw_text.find("Abstract"):]
+        else:
+            raw_text = "Abstract\n\n" + raw_text
+
+        data["abstract"] = format_abstract_text(raw_text)
+    except Exception:
+        data["abstract"] = "N/A"
+
+    return data
+
 def extract_peerj_data(driver):
     """
     Extracts structured paper details from PeerJ (peerj.com).
@@ -824,7 +913,7 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
         for item in link_items:
             url = item["link"]
             parsed_domain = urlparse(url).netloc.lower()
-            needs_captcha_humanoid = ("cell.com" in parsed_domain) or ("wiley.com" in parsed_domain) or ("sciencedirect.com" in parsed_domain)
+            needs_captcha_humanoid = ("cell.com" in parsed_domain) or ("wiley.com" in parsed_domain) or ("sciencedirect.com" in parsed_domain) or ("tandfonline.com" in parsed_domain)
 
             required_type = "captcha_humanoid" if needs_captcha_humanoid else "lite"
             if current_driver_type != required_type:
@@ -835,7 +924,7 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
                         pass
                 
                 if required_type == "captcha_humanoid":
-                    print("[*] 🛡️ Initializing Undetected Humanoid Browser (Cell / Wiley / ScienceDirect CAPTCHA Mode)...")
+                    print("[*] 🛡️ Initializing Undetected Humanoid Browser (Cell / Wiley / ScienceDirect / TandF Online CAPTCHA Mode)...")
                     current_driver = create_humanoid_driver(headless=headless)
                 else:
                     print("[*] ⚡ Initializing Fast Lite Browser (Springer/Frontiers/MDPI/Nature Mode)...")
@@ -855,6 +944,7 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
                 if needs_captcha_humanoid:
                     # Poll for target title/abstract elements after manual user resolution / Cloudflare auto-check
                     target_selectors = [
+                        "span.NLM_article-title", "div.hlFld-Abstract", "div#abstractId1",
                         "span.title-text", "h1.title-text", "div.author-group", "div#abs0001", "div#abss0001",
                         "h1.citation__title", "h1[property='name']", "h1.article-header__title", "h1.article-title",
                         "section.article-section__abstract", "section#author-abstract", "div.article-tools__abstract",
@@ -947,6 +1037,16 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
                     scraped_data = extract_sciencedirect_data(current_driver)
                     
                     print(f"\n--- [ ScienceDirect Extracted Data ] ---")
+                    print(f"📌 Title          : {scraped_data.get('title')}")
+                    print(f"👥 Author Names   : {', '.join(scraped_data.get('authors', []))}")
+                    print(f"📅 Published Date : {scraped_data.get('published_date')}")
+                    print(f"\n📖 Abstract (Formatted Plain Text):\n\n{scraped_data.get('abstract')}\n")
+
+                elif "tandfonline.com" in parsed_domain:
+                    print(f"[*] Taylor & Francis Domain Detected -> Extracting TandF Online Article Elements...")
+                    scraped_data = extract_tandfonline_data(current_driver)
+                    
+                    print(f"\n--- [ Taylor & Francis Extracted Data ] ---")
                     print(f"📌 Title          : {scraped_data.get('title')}")
                     print(f"👥 Author Names   : {', '.join(scraped_data.get('authors', []))}")
                     print(f"📅 Published Date : {scraped_data.get('published_date')}")
