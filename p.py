@@ -6,7 +6,6 @@ import re
 import random
 from urllib.parse import urlparse
 from selenium.webdriver.common.by import By
-from selenium.webdriver.common.action_chains import ActionChains
 
 try:
     import undetected_chromedriver as uc
@@ -44,8 +43,7 @@ def get_installed_chrome_version():
 
 def create_lite_driver(headless=False, use_undetected=True):
     """
-    Configures and creates a Chrome WebDriver instance.
-    Uses version_main matching the installed Chrome browser (v150).
+    Configures and creates a Chrome WebDriver instance using installed Chrome version.
     """
     chrome_major_version = get_installed_chrome_version()
 
@@ -58,17 +56,15 @@ def create_lite_driver(headless=False, use_undetected=True):
         options.add_argument("--disable-popup-blocking")
         options.add_argument("--window-size=1280,800")
         
-        # 1. Try with exact installed Chrome major version (e.g. 150)
         try:
             driver = uc.Chrome(options=options, version_main=chrome_major_version, use_subprocess=True)
             return driver
-        except Exception as err1:
-            # 2. Try undetected_chromedriver default
+        except Exception:
             try:
                 driver = uc.Chrome(options=options, use_subprocess=True)
                 return driver
-            except Exception as err2:
-                print(f"[*] Notice: undetected_chromedriver version match failed ({err1}). Falling back to standard stealth driver...")
+            except Exception as err:
+                print(f"[*] Notice: undetected_chromedriver failed ({err}). Falling back to standard stealth driver...")
 
     # Standard Selenium fallback with stealth anti-detection flags
     from selenium import webdriver
@@ -90,7 +86,6 @@ def create_lite_driver(headless=False, use_undetected=True):
     service = Service(ChromeDriverManager().install())
     driver = webdriver.Chrome(service=service, options=options)
     
-    # Hide webdriver property via CDP script
     try:
         driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
             "source": """
@@ -109,53 +104,49 @@ def click_cloudflare_checkbox(driver):
     Finds Cloudflare / Turnstile checkbox iframe and clicks it like a human.
     """
     try:
-        iframes = driver.find_elements(By.CSS_SELECTOR, "iframe[src*='challenges.cloudflare.com'], iframe[src*='turnstile'], iframe[title*='Cloudflare'], iframe[src*='challenge']")
+        iframes = driver.find_elements(By.CSS_SELECTOR, "iframe[src*='challenges.cloudflare.com'], iframe[src*='turnstile'], iframe[title*='Cloudflare'], iframe[src*='challenge'], iframe")
         if iframes:
             for iframe in iframes:
                 try:
                     driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", iframe)
-                    time.sleep(random.uniform(0.8, 1.5))
+                    time.sleep(random.uniform(0.5, 1.0))
                     
                     driver.switch_to.frame(iframe)
                     
-                    checkboxes = driver.find_elements(By.CSS_SELECTOR, "input[type='checkbox'], .mark, #challenge-stage, .ctp-checksum, label.cb-lb")
+                    checkboxes = driver.find_elements(By.CSS_SELECTOR, "input[type='checkbox'], .mark, #challenge-stage, .ctp-checksum, label.cb-lb, div.checkbox")
                     if checkboxes:
                         cb = checkboxes[0]
-                        time.sleep(random.uniform(0.5, 1.2))
+                        time.sleep(random.uniform(0.4, 0.8))
                         cb.click()
                         print("[+] 👆 Clicked Cloudflare checkbox inside iframe!")
+                        driver.switch_to.default_content()
+                        return True
                     else:
                         body = driver.find_element(By.TAG_NAME, "body")
                         body.click()
-                        print("[+] 👆 Clicked inside Cloudflare challenge iframe body!")
-                    
-                    driver.switch_to.default_content()
-                    time.sleep(2.5)
-                    return True
+                        driver.switch_to.default_content()
+                        return True
                 except Exception:
                     driver.switch_to.default_content()
-        else:
-            wrappers = driver.find_elements(By.CSS_SELECTOR, "#turnstile-wrapper, .cf-turnstile, #challenge-stage, .ctp-checkbox-label")
-            if wrappers:
-                for w in wrappers:
-                    driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", w)
-                    time.sleep(random.uniform(0.6, 1.2))
-                    w.click()
-                    print("[+] 👆 Clicked Turnstile checkbox wrapper!")
-                    time.sleep(2.5)
-                    return True
-    except Exception as e:
+        
+        wrappers = driver.find_elements(By.CSS_SELECTOR, "#turnstile-wrapper, .cf-turnstile, #challenge-stage, .ctp-checkbox-label")
+        if wrappers:
+            for w in wrappers:
+                driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", w)
+                time.sleep(random.uniform(0.5, 0.9))
+                w.click()
+                print("[+] 👆 Clicked Turnstile checkbox wrapper!")
+                return True
+    except Exception:
         driver.switch_to.default_content()
     return False
 
-def check_and_wait_for_captcha(driver, timeout=45):
+def check_and_wait_for_captcha(driver, timeout=60):
     """
-    Detects Cloudflare / CAPTCHA challenge pages, attempts a human checkbox click,
-    and waits for verification to clear.
+    Detects Cloudflare / CAPTCHA challenge pages and periodically clicks the checkbox while waiting.
     """
     start_time = time.time()
     captcha_detected = False
-    clicked_once = False
 
     while time.time() - start_time < timeout:
         title = driver.title.lower()
@@ -168,14 +159,12 @@ def check_and_wait_for_captcha(driver, timeout=45):
         if is_challenge:
             if not captcha_detected:
                 print("\n[!] 🚨 CAPTCHA / Cloudflare Verification Page Detected!")
+                print("[👉 Please click/complete the CAPTCHA in the open Chrome window if needed...]")
                 captcha_detected = True
 
-            # Attempt human checkbox click once
-            if not clicked_once:
-                print("[*] 🔍 Searching for Cloudflare checkbox to click...")
-                clicked_once = click_cloudflare_checkbox(driver)
-            
-            time.sleep(2)
+            # Periodically attempt to find and click the checkbox
+            click_cloudflare_checkbox(driver)
+            time.sleep(3)
         else:
             if captcha_detected:
                 print("[+] ✅ CAPTCHA verification cleared! Continuing scraping...\n")
@@ -455,6 +444,10 @@ def process_links(link_items, headless=False, disable_images=False, wait_time=5,
     print(f"==================================================================\n")
 
     driver = create_lite_driver(headless=headless, use_undetected=True)
+    
+    # Prevent WinError 6 on garbage collection for undetected_chromedriver
+    if hasattr(driver, '__del__'):
+        driver.__del__ = lambda: None
 
     results = []
     try:
