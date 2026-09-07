@@ -609,17 +609,18 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
                 current_driver.get(url)
                 
                 if needs_captcha_humanoid:
-                    # Poll immediately for target title/abstract elements
+                    # Poll immediately for target title/abstract elements across all CAPTCHA protected domains (Cell.com, Wiley, etc.)
                     target_selectors = [
-                        "h1.citation__title", "h1[property='name']", "h1.article-header__title",
-                        "section.article-section__abstract", "section#author-abstract", "div.abstract"
+                        "h1.citation__title", "h1[property='name']", "h1.article-header__title", "h1.article-title", "h1",
+                        "section.article-section__abstract", "section#author-abstract", "div.article-tools__abstract",
+                        "div.abstract", "#abstract", "div.abstract-group", "section[class*='abstract']"
                     ]
-                    found = wait_for_captcha_and_content(current_driver, target_selectors, timeout=8)
+                    found = wait_for_captcha_and_content(current_driver, target_selectors, timeout=5)
                     if not found:
                         humanoid_mouse_and_scroll(current_driver)
-                        wait_for_captcha_and_content(current_driver, target_selectors, timeout=4)
+                        wait_for_captcha_and_content(current_driver, target_selectors, timeout=3)
                 else:
-                    time.sleep(0.5)
+                    time.sleep(0.3)
 
                 elapsed = time.time() - start_time
                 print(f"[+] Loaded & Content Detected in {elapsed:.2f} seconds!")
