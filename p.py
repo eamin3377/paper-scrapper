@@ -2,6 +2,7 @@ import sys
 import os
 import json
 import time
+from urllib.parse import urlparse
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
@@ -43,9 +44,50 @@ def create_lite_driver(headless=False, disable_images=False):
     
     return driver
 
+def extract_springer_data(driver):
+    """
+    Extracts structured paper details from Springer Nature (link.springer.com).
+    - Title: h1.c-article-title / h1[data-test='article-title']
+    - Authors: a[data-test='author-name'] list
+    - Publication Date: time[datetime]
+    - Abstract: plain text from #Abs1-section or #Abs1-content
+    """
+    data = {}
+    
+    # 1. Title
+    try:
+        title_elem = driver.find_element(By.CSS_SELECTOR, "h1.c-article-title, h1[data-test='article-title']")
+        data["title"] = title_elem.text.strip()
+    except Exception:
+        data["title"] = driver.title
+
+    # 2. Authors
+    try:
+        author_elems = driver.find_elements(By.CSS_SELECTOR, "a[data-test='author-name']")
+        authors = [a.text.strip() for a in author_elems if a.text.strip()]
+        data["authors"] = authors if authors else []
+    except Exception:
+        data["authors"] = []
+
+    # 3. Publication Date
+    try:
+        time_elem = driver.find_element(By.CSS_SELECTOR, "time[datetime]")
+        data["published_date"] = time_elem.text.strip() or time_elem.get_attribute("datetime")
+    except Exception:
+        data["published_date"] = "N/A"
+
+    # 4. Abstract (Plain Text)
+    try:
+        abs_elem = driver.find_element(By.CSS_SELECTOR, "#Abs1-section, #Abs1-content, div[id*='Abs']")
+        data["abstract"] = abs_elem.text.strip()
+    except Exception:
+        data["abstract"] = "N/A"
+
+    return data
+
 def load_links_from_json(json_path):
     """
-    Reads a JSON file and extracts paper metadata including title, link, authors, etc.
+    Reads a JSON file and extracts paper metadata.
     """
     if not os.path.exists(json_path):
         print(f"[!] File not found: {json_path}")
@@ -124,15 +166,11 @@ def process_links(link_items, headless=False, disable_images=False, wait_time=5,
     try:
         for item in link_items:
             url = item["link"]
-            title = item.get("title", "Unknown")
+            parsed_domain = urlparse(url).netloc.lower()
+            
             print(f"------------------------------------------------------------------")
             print(f"[+] ITEM [{item['index'] + 1}/{total}]")
-            print(f"[+] Title     : {title}")
-            print(f"[+] Authors   : {item.get('authors')}")
-            print(f"[+] Source    : {item.get('source')} ({item.get('year')})")
             print(f"[+] Target URL: {url}")
-            if item.get("document_link") != "N/A":
-                print(f"[+] PDF Link  : {item.get('document_link')}")
             print(f"------------------------------------------------------------------")
             
             try:
@@ -140,45 +178,38 @@ def process_links(link_items, headless=False, disable_images=False, wait_time=5,
                 start_time = time.time()
                 driver.get(url)
                 elapsed = time.time() - start_time
-                
-                print(f"[+] Loaded successfully in {elapsed:.2f} seconds!")
-                print(f"[+] Page Title : {driver.title}")
-                print(f"[+] Final URL  : {driver.current_url}")
-                
-                # Extract main heading (H1) if present
-                h1_text = "N/A"
-                try:
-                    h1_elem = driver.find_element(By.TAG_NAME, "h1")
-                    h1_text = h1_elem.text.strip().replace("\n", " ")
-                except Exception:
-                    pass
-                print(f"[+] H1 Heading : {h1_text}")
+                print(f"[+] Loaded in {elapsed:.2f} seconds!")
 
-                # Extract meta description or abstract snippet
-                meta_desc = "N/A"
-                try:
-                    meta_elem = driver.find_element(By.XPATH, "//meta[@name='description' or @property='og:description']")
-                    meta_desc = meta_elem.get_attribute("content")
-                    if meta_desc and len(meta_desc) > 150:
-                        meta_desc = meta_desc[:150] + "..."
-                except Exception:
-                    pass
-                print(f"[+] Meta Desc  : {meta_desc}")
+                scraped_data = {}
+                
+                # Springer Specific Parser
+                if "link.springer.com" in parsed_domain:
+                    print(f"[*] Springer Domain Detected -> Extracting Springer Article Elements...")
+                    scraped_data = extract_springer_data(driver)
+                    
+                    print(f"\n--- [ Springer Extracted Data ] ---")
+                    print(f"📌 Title          : {scraped_data.get('title')}")
+                    print(f"👥 Author Names   : {', '.join(scraped_data.get('authors', []))}")
+                    print(f"📅 Published Date : {scraped_data.get('published_date')}")
+                    print(f"\n📖 Abstract (Plain Text):\n{scraped_data.get('abstract')}\n")
+                else:
+                    # General Fallback Extractor
+                    print(f"[+] Page Title : {driver.title}")
+                    print(f"[+] Final URL  : {driver.current_url}")
 
                 if wait_time > 0 and not headless:
                     print(f"[*] Keeping browser visible for {wait_time}s inspection...")
                     time.sleep(wait_time)
 
                 results.append({
-                    "title": title,
                     "url": url,
+                    "scraped_data": scraped_data,
                     "status": "success"
                 })
 
             except Exception as ex:
                 print(f"[!] Failed to load {url}: {ex}")
                 results.append({
-                    "title": title,
                     "url": url,
                     "status": "failed",
                     "error": str(ex)
