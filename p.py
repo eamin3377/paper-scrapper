@@ -173,6 +173,77 @@ def clean_title_text(text):
     cleaned = re.sub(r'^(?:first_page|settings|Order\s+Article\s+Reprints|Open\s+AccessReview|Open\s+Access|Review|Article|Communication|Editorial)\s*', '', text, flags=re.IGNORECASE).strip()
     return cleaned
 
+def extract_nature_data(driver):
+    """
+    Extracts structured paper details from Nature (nature.com).
+    - Title: h1.c-article-title / h1[data-test='article-title']
+    - Authors: ul.c-article-author-list a[data-test='author-name'] (Extracts clean author names without SVG icons/superscripts)
+    - Publication Date: time[datetime] / span.c-article-identifiers__item time
+    - Abstract: section[aria-labelledby='Abs1'] / #Abs1-section / #Abs1-content
+    """
+    data = {}
+    
+    # 1. Title
+    try:
+        title_elem = driver.find_element(By.CSS_SELECTOR, "h1.c-article-title, h1[data-test='article-title'], h1")
+        data["title"] = title_elem.text.strip()
+    except Exception:
+        data["title"] = driver.title
+
+    # 2. Authors
+    try:
+        author_names = []
+        author_elems = driver.find_elements(By.CSS_SELECTOR, "ul.c-article-author-list a[data-test='author-name'], a[data-test='author-name']")
+        for elem in author_elems:
+            # Execute JS to get first child text node or innerText stripped of child elements
+            raw_name = driver.execute_script(
+                "return arguments[0].childNodes[0] ? arguments[0].childNodes[0].nodeValue : arguments[0].innerText;", elem
+            )
+            if not raw_name or not raw_name.strip():
+                raw_name = elem.get_attribute("data-track-label") or elem.text
+            clean_name = raw_name.strip() if raw_name else ""
+            if clean_name and clean_name not in author_names:
+                author_names.append(clean_name)
+
+        data["authors"] = author_names
+    except Exception:
+        data["authors"] = []
+
+    # 3. Publication Date
+    try:
+        date_str = "N/A"
+        try:
+            time_elem = driver.find_element(By.CSS_SELECTOR, "time[datetime], a[data-track-action='publication date'] time")
+            date_str = time_elem.text.strip() or time_elem.get_attribute("datetime")
+        except Exception:
+            meta_date = driver.find_element(By.CSS_SELECTOR, "meta[name='citation_publication_date'], meta[name='prism.publicationDate']")
+            date_str = meta_date.get_attribute("content")
+
+        data["published_date"] = date_str
+    except Exception:
+        data["published_date"] = "N/A"
+
+    # 4. Abstract
+    try:
+        raw_text = ""
+        try:
+            abs_elem = driver.find_element(By.CSS_SELECTOR, "section[aria-labelledby='Abs1'], #Abs1-section, #Abs1-content, div.c-article-section#Abs1-section")
+            raw_text = abs_elem.text.strip()
+        except Exception:
+            abs_elem = driver.find_element(By.CSS_SELECTOR, "div[id*='Abs'], section[class*='abstract']")
+            raw_text = abs_elem.text.strip()
+
+        if "Abstract" in raw_text:
+            raw_text = raw_text[raw_text.find("Abstract"):]
+        else:
+            raw_text = "Abstract\n\n" + raw_text
+
+        data["abstract"] = format_abstract_text(raw_text)
+    except Exception:
+        data["abstract"] = "N/A"
+
+    return data
+
 def extract_springer_data(driver):
     """
     Extracts structured paper details from Springer Nature (link.springer.com).
@@ -672,6 +743,16 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
                     scraped_data = extract_wiley_data(current_driver)
                     
                     print(f"\n--- [ Wiley Extracted Data ] ---")
+                    print(f"📌 Title          : {scraped_data.get('title')}")
+                    print(f"👥 Author Names   : {', '.join(scraped_data.get('authors', []))}")
+                    print(f"📅 Published Date : {scraped_data.get('published_date')}")
+                    print(f"\n📖 Abstract (Formatted Plain Text):\n\n{scraped_data.get('abstract')}\n")
+
+                elif "nature.com" in parsed_domain:
+                    print(f"[*] Nature Domain Detected -> Extracting Nature Article Elements...")
+                    scraped_data = extract_nature_data(current_driver)
+                    
+                    print(f"\n--- [ Nature Extracted Data ] ---")
                     print(f"📌 Title          : {scraped_data.get('title')}")
                     print(f"👥 Author Names   : {', '.join(scraped_data.get('authors', []))}")
                     print(f"📅 Published Date : {scraped_data.get('published_date')}")
