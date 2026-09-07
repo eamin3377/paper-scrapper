@@ -1,13 +1,13 @@
 # Paper Scrapper - Lite Selenium Browser
 
-A lightweight, resource-optimized Selenium browser script built in Python to open URLs quickly.
+A lightweight, resource-optimized Selenium browser script built in Python to open URLs and process paper links from JSON files like `paper.txt`.
 
 ## Features
 
-- 👁️ **Visible Inspection Mode (Default)**: Opens a visible Chrome browser window so you can watch the page loading and inspect elements live.
-- ⚡ **Headless Mode Support**: Pass `--headless` if you want to run silently in the background.
-- 🖼️ **Optional Image & Notification Blocking**: Saves bandwidth and loads pages faster.
-- 🚀 **Eager Page Loading**: Configured with `eager` page load strategy to start processing as soon as the DOM is ready.
+- 📄 **Automatic JSON Link Extraction**: Reads `paper.txt` (or any raw JSON file) and extracts `"link": "https://..."` targets automatically.
+- 👁️ **Visible Inspection Mode (Default)**: Opens a visible Chrome browser window with a pause so you can watch each paper link load and observe the contents live.
+- ⚡ **Headless Mode Support**: Pass `--headless` to run silently in the background.
+- 🚀 **Eager Page Loading**: Configured with `eager` page load strategy for fast DOM ready loading.
 - 🛠️ **Automatic Driver Management**: Automatically downloads and manages `chromedriver` using `webdriver-manager`.
 
 ## Setup & Installation
@@ -18,44 +18,49 @@ A lightweight, resource-optimized Selenium browser script built in Python to ope
    cd paper-scrapper
    ```
 
-2. **Create a virtual environment (optional but recommended):**
-   ```bash
-   python -m venv .venv
-   # Windows
-   .venv\Scripts\activate
-   # Linux/macOS
-   source .venv/bin/activate
-   ```
-
-3. **Install dependencies:**
+2. **Install dependencies:**
    ```bash
    pip install -r requirements.txt
    ```
 
 ## Usage
 
-### 1. Visible Mode (Default)
-Run the script to open a visible Chrome window for visual inspection:
+### 1. Process Links from `paper.txt` (Default)
+Simply run the script with no arguments (or pass `paper.txt`):
 
 ```bash
-python p.py https://example.com
+python p.py
 ```
 
-### 2. Headless Mode
-Add `--headless` to run silently in the background:
+Or specify `paper.txt` explicitly:
 
 ```bash
-python p.py https://example.com --headless
+python p.py paper.txt
 ```
 
-### Python Import Usage
+### 2. Open a Single Direct URL
+Pass any URL directly:
 
-You can also import `open_url` or `create_lite_driver` into your own scripts:
+```bash
+python p.py https://link.springer.com/article/10.1186/s12911-025-03246-7
+```
 
-```python
-from p import open_url
+### 3. Headless Execution
+Add `--headless` to run without launching a browser window:
 
-# Visible window with 5-second pause to inspect page
-result = open_url("https://news.ycombinator.com", headless=False, wait_time=5)
-print(result["title"])
+```bash
+python p.py paper.txt --headless
+```
+
+## JSON File Format (`paper.txt`)
+
+The script expects a JSON array of paper objects containing `"link"` fields, for example:
+
+```json
+[
+  {
+    "title": "From dry eye to depression: a machine learning-based framework",
+    "link": "https://link.springer.com/article/10.1186/s12911-025-03246-7"
+  }
+]
 ```

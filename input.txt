@@ -1,0 +1,23 @@
+{
+    "cidCode": "ObQe9AUnYRwJ",
+    "didCode": "ObQe9AUnYRwJ",
+    "lidCode": "",
+    "aidCode": "ObQe9AUnYRwJ",
+    "resultIndex": 0,
+    "type": "ARTICLE",
+    "title": "From dry eye to depression: a machine learning-based framework for predicting adolescent mental health",
+    "link": "https://link.springer.com/article/10.1186/s12911-025-03246-7",
+    "documentLink": "https://link.springer.com/content/pdf/10.1186/s12911-025-03246-7.pdf",
+    "documentType": "PDF",
+    "fullAttribution": "…, X Liu, K Cao, L Ren, Y Chang, Z Ma, L Tian… - BMC Medical Informatics …, 2025 - Springer",
+    "authors": "…, X Liu, K Cao, L Ren, Y Chang, Z Ma, L Tian…",
+    "publication": "BMC Medical Informatics …",
+    "year": 2025,
+    "source": "Springer",
+    "searchMatch": "… LASSO (L1-… Decision Tree, Random Forest, Gradient Boosting) for capturing nonlinear \nrelationships and feature interactions. • Boosted ensemble models (LightGBM, XGBoost, CatBoost…",
+    "citations": 1,
+    "citationsLink": "https://scholar.google.com/scholar?cites=2044958612326888505&as_sdt=400005&sciodt=0,14&hl=en",
+    "relatedArticlesLink": "https://scholar.google.com/scholar?q=related:ObQe9AUnYRwJ:scholar.google.com/&scioq=(%22machine+learning%22%5Btiab%5D+OR+%22AI%22+OR+%22artificial+intelligence%22+OR+%22random+forest%22%5Btiab%5D+OR+%22gradient+boosting%22%5Btiab%5D+OR+%22XGBoost%22%5Btiab%5D+OR+%22LightGBM%22%5Btiab%5D+OR+%22CatBoost%22%5Btiab%5D+OR+%22support+vector+machine%22%5Btiab%5D+OR+%22SVM%22%5Btiab%5D+OR+%22weighted+SVM%22+OR+%22LASSO%22%5Btiab%5D+OR+%22Ridge%22+OR+%22decision+tree%22%5Btiab%5D+OR+%22bagging%22+OR+%22boosting%22+OR+%22deep+learning%22%5Btiab%5D+OR+%22neural+network*%22%5Btiab%5D+OR+%22support+vector%22%5Btiab%5D+OR+%22artificial+intelligence%22%5Btiab%5D+OR+%22ensemble+method*%22%5Btiab%5D+OR+%22super+learner%22%5Btiab%5D+OR+%22naive+bayes%22+OR+%22k-Nearest+Neighbors%22+OR+%22k-NN%22+OR+%22K-Means+clustering%22+OR+%22hierarchical+clustering%22+OR+%22Jackknife+repeated+replication%22+OR+%22JRR%22+OR+%22Balanced+repeated+replication%22+OR+%22BRR%22+OR+%22bootstrap%22+OR+%22missing+value%22+OR+%22artificial+neural+networks%22+OR+%22ANN%22+OR+%22convolutional+neural+networks%22+OR+%22CNN%22+OR+%22recurrent+neural+networks%22+OR+%22RNN%22+OR+%22generative+adversarial+networks%22+OR+%22GANs%22)+OR+(%22complex+survey%22+OR+%22complex+survey+data%22+OR+%22complex+survey+design%22+OR+%22complex+survey+analysis%22+OR+%22survey+analysis%22+OR+%22survey+design%22+OR+%22population-based+survey%22+OR+%22probability+survey%22+OR+%22multistage+sampling%22+OR+%22stratified+sampling%22+OR+%22cluster+sampling%22+OR+%22stratified+cluster+sampling%22+OR+%22probability+sampling%22+OR+%22multi-stage+probability+sampling%22)+OR+(%22sampling+weights%22+OR+%22survey+weights%22+OR+%22probability+weights%22+OR+%22weighted+analysis%22+OR+%22inverse+probability+weighting%22+OR+%22design+weights%22+OR+%22post-stratification+weights%22+OR+%22calibration+weights%22+OR+%22final+weights%22+OR+%22sample+weights%22)&hl=en&as_sdt=0,14",
+    "versions": 6,
+    "versionsLink": "https://scholar.google.com/scholar?cluster=2044958612326888505&hl=en&as_sdt=0,14"
+  }
