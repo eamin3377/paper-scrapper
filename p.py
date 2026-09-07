@@ -45,13 +45,24 @@ def create_lite_driver(headless=False, disable_images=False):
     
     return driver
 
+def format_abstract_text(text):
+    """
+    Formats abstract text to ensure double spacing between section headings
+    (e.g., Background:, Objective:, Methods:, Results:, Conclusions:, etc.).
+    """
+    if not text:
+        return "N/A"
+    
+    # Insert double newlines before common section keywords
+    pattern = r'(\b(?:Abstract|Background:|Objective:|Methods:|Results:|Conclusions:|Systematic review registration:))'
+    formatted = re.sub(pattern, r'\n\n\1', text)
+    # Remove any extra leading/trailing whitespace and excess newlines (>2)
+    formatted = re.sub(r'\n{3,}', '\n\n', formatted).strip()
+    return formatted
+
 def extract_springer_data(driver):
     """
     Extracts structured paper details from Springer Nature (link.springer.com).
-    - Title: h1.c-article-title / h1[data-test='article-title']
-    - Authors: a[data-test='author-name'] list
-    - Publication Date: time[datetime]
-    - Abstract: plain text from #Abs1-section or #Abs1-content
     """
     data = {}
     
@@ -77,10 +88,10 @@ def extract_springer_data(driver):
     except Exception:
         data["published_date"] = "N/A"
 
-    # 4. Abstract (Plain Text)
+    # 4. Abstract (Formatted with Spacing)
     try:
         abs_elem = driver.find_element(By.CSS_SELECTOR, "#Abs1-section, #Abs1-content, div[id*='Abs']")
-        data["abstract"] = abs_elem.text.strip()
+        data["abstract"] = format_abstract_text(abs_elem.text.strip())
     except Exception:
         data["abstract"] = "N/A"
 
@@ -89,10 +100,6 @@ def extract_springer_data(driver):
 def extract_frontiers_data(driver):
     """
     Extracts structured paper details from Frontiers (frontiersin.org).
-    - Title: h1.ArticleDetailsV4__main__title
-    - Authors: ul.PeopleList__list -> p.PeopleListItem__name
-    - Publication Date: p.ArticleLayoutHeader__info__journalDate -> second span (strip comma)
-    - Abstract: div#h1 plain text
     """
     data = {}
     
@@ -141,10 +148,26 @@ def extract_frontiers_data(driver):
     except Exception:
         data["published_date"] = "N/A"
 
-    # 4. Abstract (Plain Text)
+    # 4. Abstract (Formatted with Spacing between sections)
     try:
         abs_elem = driver.find_element(By.CSS_SELECTOR, "div#h1, div[id='h1']")
-        data["abstract"] = abs_elem.text.strip()
+        paragraphs = abs_elem.find_elements(By.CSS_SELECTOR, "p, h2, h3")
+        if paragraphs:
+            lines = [p.text.strip() for p in paragraphs if p.text.strip()]
+            formatted_lines = []
+            i = 0
+            while i < len(lines):
+                line = lines[i]
+                if (line.endswith(":") or line in ["Abstract", "Background:", "Objective:", "Methods:", "Results:", "Conclusions:", "Systematic review registration:"]) and i + 1 < len(lines) and not lines[i+1].endswith(":"):
+                    formatted_lines.append(f"{line} {lines[i+1]}")
+                    i += 2
+                else:
+                    formatted_lines.append(line)
+                    i += 1
+            raw_abstract = "\n\n".join(formatted_lines)
+            data["abstract"] = format_abstract_text(raw_abstract)
+        else:
+            data["abstract"] = format_abstract_text(abs_elem.text.strip())
     except Exception:
         data["abstract"] = "N/A"
 
@@ -256,7 +279,7 @@ def process_links(link_items, headless=False, disable_images=False, wait_time=5,
                     print(f"📌 Title          : {scraped_data.get('title')}")
                     print(f"👥 Author Names   : {', '.join(scraped_data.get('authors', []))}")
                     print(f"📅 Published Date : {scraped_data.get('published_date')}")
-                    print(f"\n📖 Abstract (Plain Text):\n{scraped_data.get('abstract')}\n")
+                    print(f"\n📖 Abstract (Formatted Plain Text):\n\n{scraped_data.get('abstract')}\n")
 
                 elif "frontiersin.org" in parsed_domain:
                     print(f"[*] Frontiersin.org Domain Detected -> Extracting Frontiers Article Elements...")
@@ -266,7 +289,7 @@ def process_links(link_items, headless=False, disable_images=False, wait_time=5,
                     print(f"📌 Title          : {scraped_data.get('title')}")
                     print(f"👥 Author Names   : {', '.join(scraped_data.get('authors', []))}")
                     print(f"📅 Published Date : {scraped_data.get('published_date')}")
-                    print(f"\n📖 Abstract (Plain Text):\n{scraped_data.get('abstract')}\n")
+                    print(f"\n📖 Abstract (Formatted Plain Text):\n\n{scraped_data.get('abstract')}\n")
 
                 else:
                     # General Fallback Extractor
