@@ -40,7 +40,6 @@ def create_humanoid_driver(headless=False):
     """
     chrome_major_version = get_installed_chrome_version()
     
-    # Common realistic desktop User-Agent
     user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
 
     if HAS_UC:
@@ -65,7 +64,6 @@ def create_humanoid_driver(headless=False):
             except Exception:
                 pass
 
-    # Standard Selenium fallback with stealth settings
     from selenium import webdriver
     from selenium.webdriver.chrome.options import Options
     from selenium.webdriver.chrome.service import Service
@@ -125,7 +123,6 @@ def wait_for_human_page_load(driver, wait_seconds=8):
     Waits naturally like a human user opening a webpage.
     """
     print(f"[*] ☕ Waiting {wait_seconds}s for natural page render & Cloudflare check...")
-    
     time.sleep(4)
     humanoid_mouse_and_scroll(driver)
     time.sleep(max(1, wait_seconds - 4))
@@ -314,6 +311,74 @@ def extract_cell_data(driver):
 
     return data
 
+def extract_mdpi_data(driver):
+    """
+    Extracts structured paper details from MDPI (mdpi.com).
+    - Title: h1.title / h1[itemprop='name']
+    - Authors: div.art-authors -> div.profile-card-drop
+    - Publication Date: span (starts with "Published:") or meta citation_publication_date
+    - Abstract: section.art-abstract / div.art-abstract
+    """
+    data = {}
+    
+    # 1. Title
+    try:
+        title_elem = driver.find_element(By.CSS_SELECTOR, "h1.title, h1[itemprop='name'], h1")
+        data["title"] = title_elem.text.strip()
+    except Exception:
+        data["title"] = driver.title
+
+    # 2. Authors
+    try:
+        author_names = []
+        author_elems = driver.find_elements(By.CSS_SELECTOR, "div.art-authors div.profile-card-drop, div.art-authors span.sciprofiles-link__name")
+        for elem in author_elems:
+            name = elem.text.strip()
+            if name and name not in author_names:
+                author_names.append(name)
+                
+        # Fallback if profile-card-drop is nested
+        if not author_names:
+            links = driver.find_elements(By.CSS_SELECTOR, "div.art-authors span.inlineblock")
+            for l in links:
+                txt = l.text.split("\n")[0].replace("by", "").replace(",", "").strip()
+                if txt and txt not in author_names:
+                    author_names.append(txt)
+
+        data["authors"] = author_names
+    except Exception:
+        data["authors"] = []
+
+    # 3. Publication Date
+    try:
+        date_str = "N/A"
+        try:
+            # Find span with Published:
+            spans = driver.find_elements(By.CSS_SELECTOR, "div.pubhistory span, div.bib-identity span")
+            for s in spans:
+                if "Published:" in s.text:
+                    date_str = s.text.replace("Published:", "").strip()
+                    break
+        except Exception:
+            pass
+
+        if date_str == "N/A":
+            meta_date = driver.find_element(By.CSS_SELECTOR, "meta[name='citation_publication_date']")
+            date_str = meta_date.get_attribute("content")
+
+        data["published_date"] = date_str
+    except Exception:
+        data["published_date"] = "N/A"
+
+    # 4. Abstract
+    try:
+        abs_elem = driver.find_element(By.CSS_SELECTOR, "section.art-abstract, div.art-abstract, div.abstract_div")
+        data["abstract"] = format_abstract_text(abs_elem.text.strip())
+    except Exception:
+        data["abstract"] = "N/A"
+
+    return data
+
 def load_links_from_json(json_path):
     """
     Reads a JSON file and extracts paper metadata.
@@ -441,6 +506,16 @@ def process_links(link_items, headless=False, disable_images=False, wait_time=8,
                     scraped_data = extract_cell_data(driver)
                     
                     print(f"\n--- [ Cell Press Extracted Data ] ---")
+                    print(f"📌 Title          : {scraped_data.get('title')}")
+                    print(f"👥 Author Names   : {', '.join(scraped_data.get('authors', []))}")
+                    print(f"📅 Published Date : {scraped_data.get('published_date')}")
+                    print(f"\n📖 Abstract (Formatted Plain Text):\n\n{scraped_data.get('abstract')}\n")
+
+                elif "mdpi.com" in parsed_domain:
+                    print(f"[*] MDPI Domain Detected -> Extracting MDPI Article Elements...")
+                    scraped_data = extract_mdpi_data(driver)
+                    
+                    print(f"\n--- [ MDPI Extracted Data ] ---")
                     print(f"📌 Title          : {scraped_data.get('title')}")
                     print(f"👥 Author Names   : {', '.join(scraped_data.get('authors', []))}")
                     print(f"📅 Published Date : {scraped_data.get('published_date')}")
