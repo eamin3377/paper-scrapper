@@ -69,7 +69,7 @@ def create_lite_driver(headless=False):
 
 def create_humanoid_driver(headless=False):
     """
-    Creates an Undetected Chrome Driver specifically for Cell.com (CAPTCHA protected).
+    Creates an Undetected Chrome Driver specifically for Cell.com & Wiley (CAPTCHA protected).
     """
     chrome_major_version = get_installed_chrome_version()
     user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
@@ -85,6 +85,7 @@ def create_humanoid_driver(headless=False):
         options.add_argument("--start-maximized")
         options.add_argument(f"user-agent={user_agent}")
         options.add_argument("--lang=en-US,en")
+        options.page_load_strategy = 'eager'
         
         try:
             driver = uc.Chrome(options=options, version_main=chrome_major_version, use_subprocess=True)
@@ -97,6 +98,23 @@ def create_humanoid_driver(headless=False):
                 pass
 
     return create_lite_driver(headless=headless)
+
+def wait_for_captcha_and_content(driver, selectors, timeout=12):
+    """
+    Polls the DOM rapidly. As soon as any target article element appears after CAPTCHA,
+    returns immediately without waiting for full page asset loads (images, ads, tracker scripts).
+    """
+    start_time = time.time()
+    while time.time() - start_time < timeout:
+        try:
+            for selector in selectors:
+                elems = driver.find_elements(By.CSS_SELECTOR, selector)
+                if elems and any(e.text.strip() for e in elems):
+                    return True
+        except Exception:
+            pass
+        time.sleep(0.4)
+    return False
 
 def humanoid_mouse_and_scroll(driver):
     """
@@ -591,14 +609,20 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
                 current_driver.get(url)
                 
                 if needs_captcha_humanoid:
-                    time.sleep(4)
-                    humanoid_mouse_and_scroll(current_driver)
-                    time.sleep(3)
+                    # Poll immediately for target title/abstract elements
+                    target_selectors = [
+                        "h1.citation__title", "h1[property='name']", "h1.article-header__title",
+                        "section.article-section__abstract", "section#author-abstract", "div.abstract"
+                    ]
+                    found = wait_for_captcha_and_content(current_driver, target_selectors, timeout=8)
+                    if not found:
+                        humanoid_mouse_and_scroll(current_driver)
+                        wait_for_captcha_and_content(current_driver, target_selectors, timeout=4)
                 else:
-                    time.sleep(1)
+                    time.sleep(0.5)
 
                 elapsed = time.time() - start_time
-                print(f"[+] Loaded in {elapsed:.2f} seconds!")
+                print(f"[+] Loaded & Content Detected in {elapsed:.2f} seconds!")
 
                 scraped_data = {}
                 
