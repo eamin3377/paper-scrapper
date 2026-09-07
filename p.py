@@ -133,19 +133,47 @@ def click_cloudflare_checkbox_humanoid(driver):
 
         print("[*] 🚨 Cloudflare CAPTCHA Verification Page Detected!")
         
-        # Function to attempt human-like click on target checkbox element
+        # Function to detect exact element screen position and perform realistic physical mouse click
         def perform_human_click(elem):
             try:
+                # 1. Scroll element into view smoothly
+                driver.execute_script("arguments[0].scrollIntoView({block: 'center', behavior: 'smooth'});", elem)
+                time.sleep(random.uniform(0.3, 0.6))
+
+                # 2. Extract exact bounding box coordinates of element
+                rect = driver.execute_script("""
+                    var r = arguments[0].getBoundingClientRect();
+                    return {x: r.left + r.width / 2, y: r.top + r.height / 2, width: r.width, height: r.height};
+                """, elem)
+
+                # 3. Perform physical ActionChains move to exact coordinate + offset click
+                offset_x = random.randint(-int(rect["width"] / 4 or 2), int(rect["width"] / 4 or 2))
+                offset_y = random.randint(-int(rect["height"] / 4 or 2), int(rect["height"] / 4 or 2))
+
                 actions = ActionChains(driver)
-                # Gentle human jitter before hover
-                actions.move_by_offset(random.randint(-15, 15), random.randint(-15, 15)).pause(random.uniform(0.2, 0.4))
-                actions.move_to_element(elem).pause(random.uniform(0.4, 0.9))
-                actions.click().perform()
-                print("[*] 🖱️ Humanoid click performed on 'Verify you are human' checkbox!")
+                # Move to element center with human micro-pause
+                actions.move_to_element_with_offset(elem, offset_x, offset_y).pause(random.uniform(0.3, 0.6))
+                actions.click_and_hold().pause(random.uniform(0.08, 0.18)).release().perform()
+                print(f"[*] 🖱️ Physical humanoid mouse click executed on element position (X: {rect['x']:.1f}, Y: {rect['y']:.1f})!")
                 return True
-            except Exception:
+            except Exception as ex:
                 try:
-                    driver.execute_script("arguments[0].click();", elem)
+                    # Fallback: dispatch full real JS MouseEvent sequence at detected position
+                    driver.execute_script("""
+                        var elem = arguments[0];
+                        var rect = elem.getBoundingClientRect();
+                        var cx = rect.left + rect.width / 2;
+                        var cy = rect.top + rect.height / 2;
+                        ['mousemove', 'mousedown', 'mouseup', 'click'].forEach(function(type) {
+                            var evt = new MouseEvent(type, {
+                                bubbles: true, cancelable: true, view: window,
+                                clientX: cx, clientY: cy, screenX: cx, screenY: cy,
+                                button: 0, buttons: 1
+                            });
+                            elem.dispatchEvent(evt);
+                        });
+                    """, elem)
+                    print("[*] 🖱️ Real MouseEvent sequence dispatched to detected checkbox position!")
                     return True
                 except Exception:
                     pass
