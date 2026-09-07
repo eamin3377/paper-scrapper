@@ -665,7 +665,7 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
                     print("[*] 🛡️ Initializing Undetected Humanoid Browser (Cell / Wiley CAPTCHA Mode)...")
                     current_driver = create_humanoid_driver(headless=headless)
                 else:
-                    print("[*] ⚡ Initializing Fast Lite Browser (Springer/Frontiers/MDPI Mode)...")
+                    print("[*] ⚡ Initializing Fast Lite Browser (Springer/Frontiers/MDPI/Nature Mode)...")
                     current_driver = create_lite_driver(headless=headless)
                 
                 current_driver_type = required_type
