@@ -121,120 +121,11 @@ def wait_for_captcha_and_content(driver, selectors, timeout=15):
         time.sleep(0.4)
     return False
 
-def click_cloudflare_checkbox_humanoid(driver):
-    """
-    Locates the exact Cloudflare Turnstile checkbox (<input type="checkbox" aria-label="Verify you are human">)
-    and performs realistic human-like mouse movement and click.
-    """
-    try:
-        title = driver.title.lower()
-        if "are you a robot" not in title and "just a moment" not in title and "cloudflare" not in title:
-            return False
-
-        print("[*] 🚨 Cloudflare CAPTCHA Verification Page Detected!")
-        
-        # Function to detect exact element screen position and perform realistic physical mouse click
-        def perform_human_click(elem):
-            try:
-                # 1. Scroll element into view smoothly
-                driver.execute_script("arguments[0].scrollIntoView({block: 'center', behavior: 'smooth'});", elem)
-                time.sleep(random.uniform(0.3, 0.6))
-
-                # 2. Extract exact bounding box coordinates of element
-                rect = driver.execute_script("""
-                    var r = arguments[0].getBoundingClientRect();
-                    return {x: r.left + r.width / 2, y: r.top + r.height / 2, width: r.width, height: r.height};
-                """, elem)
-
-                # 3. Perform physical ActionChains move to exact coordinate + offset click
-                offset_x = random.randint(-int(rect["width"] / 4 or 2), int(rect["width"] / 4 or 2))
-                offset_y = random.randint(-int(rect["height"] / 4 or 2), int(rect["height"] / 4 or 2))
-
-                actions = ActionChains(driver)
-                # Move to element center with human micro-pause
-                actions.move_to_element_with_offset(elem, offset_x, offset_y).pause(random.uniform(0.3, 0.6))
-                actions.click_and_hold().pause(random.uniform(0.08, 0.18)).release().perform()
-                print(f"[*] 🖱️ Physical humanoid mouse click executed on element position (X: {rect['x']:.1f}, Y: {rect['y']:.1f})!")
-                return True
-            except Exception as ex:
-                try:
-                    # Fallback: dispatch full real JS MouseEvent sequence at detected position
-                    driver.execute_script("""
-                        var elem = arguments[0];
-                        var rect = elem.getBoundingClientRect();
-                        var cx = rect.left + rect.width / 2;
-                        var cy = rect.top + rect.height / 2;
-                        ['mousemove', 'mousedown', 'mouseup', 'click'].forEach(function(type) {
-                            var evt = new MouseEvent(type, {
-                                bubbles: true, cancelable: true, view: window,
-                                clientX: cx, clientY: cy, screenX: cx, screenY: cy,
-                                button: 0, buttons: 1
-                            });
-                            elem.dispatchEvent(evt);
-                        });
-                    """, elem)
-                    print("[*] 🖱️ Real MouseEvent sequence dispatched to detected checkbox position!")
-                    return True
-                except Exception:
-                    pass
-            return False
-
-        # 1. Search inside all iframes for <input type="checkbox" aria-label="Verify you are human">
-        iframes = driver.find_elements(By.TAG_NAME, "iframe")
-        for iframe in iframes:
-            try:
-                driver.switch_to.frame(iframe)
-                selectors = [
-                    "input[type='checkbox'][aria-label='Verify you are human']",
-                    "input[type='checkbox'][aria-label*='Verify']",
-                    "input[type='checkbox']",
-                    ".ctp-checkbox-label",
-                    "label.ctp-checkbox-label span",
-                    "#challenge-stage input"
-                ]
-                for sel in selectors:
-                    checkboxes = driver.find_elements(By.CSS_SELECTOR, sel)
-                    if checkboxes:
-                        cb = checkboxes[0]
-                        if cb.is_displayed() or True:
-                            if perform_human_click(cb):
-                                driver.switch_to.default_content()
-                                time.sleep(3)
-                                return True
-                driver.switch_to.default_content()
-            except Exception:
-                try:
-                    driver.switch_to.default_content()
-                except Exception:
-                    pass
-
-        # 2. Search main document for <input type="checkbox" aria-label="Verify you are human">
-        selectors_main = [
-            "input[type='checkbox'][aria-label='Verify you are human']",
-            "input[type='checkbox'][aria-label*='Verify']",
-            "div.cf-turnstile input[type='checkbox']",
-            "#challenge-stage input[type='checkbox']"
-        ]
-        for sel in selectors_main:
-            cb_elems = driver.find_elements(By.CSS_SELECTOR, sel)
-            if cb_elems:
-                if perform_human_click(cb_elems[0]):
-                    time.sleep(3)
-                    return True
-
-    except Exception as e:
-        try:
-            driver.switch_to.default_content()
-        except Exception:
-            pass
-    return False
-
 def humanoid_mouse_and_scroll(driver):
     """
-    Simulates gentle human-like mouse movements and natural scrolling for Cell.com, Wiley & ScienceDirect.
+    Simulates gentle human-like mouse movements and natural scrolling for CAPTCHA protected domains.
     """
     try:
-        click_cloudflare_checkbox_humanoid(driver)
         actions = ActionChains(driver)
         actions.move_by_offset(random.randint(10, 50), random.randint(10, 50)).perform()
         time.sleep(random.uniform(0.5, 1.2))
@@ -962,19 +853,17 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
                 current_driver.get(url)
                 
                 if needs_captcha_humanoid:
-                    time.sleep(1.5)
-                    click_cloudflare_checkbox_humanoid(current_driver)
-                    # Poll for target title/abstract elements across all CAPTCHA protected domains
+                    # Poll for target title/abstract elements after manual user resolution / Cloudflare auto-check
                     target_selectors = [
                         "span.title-text", "h1.title-text", "div.author-group", "div#abs0001", "div#abss0001",
                         "h1.citation__title", "h1[property='name']", "h1.article-header__title", "h1.article-title",
                         "section.article-section__abstract", "section#author-abstract", "div.article-tools__abstract",
                         "div.abstract", "#abstract", "div.abstract-group", "section[class*='abstract']"
                     ]
-                    found = wait_for_captcha_and_content(current_driver, target_selectors, timeout=8)
+                    found = wait_for_captcha_and_content(current_driver, target_selectors, timeout=12)
                     if not found:
                         humanoid_mouse_and_scroll(current_driver)
-                        wait_for_captcha_and_content(current_driver, target_selectors, timeout=5)
+                        wait_for_captcha_and_content(current_driver, target_selectors, timeout=8)
                 else:
                     time.sleep(0.3)
 
