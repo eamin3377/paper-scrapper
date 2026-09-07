@@ -173,6 +173,88 @@ def clean_title_text(text):
     cleaned = re.sub(r'^(?:first_page|settings|Order\s+Article\s+Reprints|Open\s+AccessReview|Open\s+Access|Review|Article|Communication|Editorial)\s*', '', text, flags=re.IGNORECASE).strip()
     return cleaned
 
+def extract_peerj_data(driver):
+    """
+    Extracts structured paper details from PeerJ (peerj.com).
+    - Title: h1.article-title, h1[itemprop='name headline']
+    - Authors: div.article-authors span.contrib span.name (e.g. Jianwei Tian, Hongyu Zhu)
+    - Publication Date: span.article-meta-value, meta[name='citation_publication_date']
+    - Abstract: div#article-item-abstract div.abstract (Strips self-citation footer)
+    """
+    data = {}
+    
+    # 1. Title
+    try:
+        title_elem = driver.find_element(By.CSS_SELECTOR, "h1.article-title, h1[itemprop='name headline'], h1")
+        data["title"] = title_elem.text.strip()
+    except Exception:
+        data["title"] = driver.title
+
+    # 2. Authors
+    try:
+        author_names = []
+        author_elems = driver.find_elements(By.CSS_SELECTOR, "div.article-authors span.contrib span.name, div.article-authors span.contrib a")
+        for elem in author_elems:
+            # Extract plain text of author name (given-names + surname)
+            raw_name = driver.execute_script("return arguments[0].innerText || arguments[0].textContent;", elem)
+            clean_name = re.sub(r'[\u200b\u200c\u200d\uFEFF]', '', raw_name).strip() if raw_name else ""
+            clean_name = re.sub(r'[^\w\s\.\-]', '', clean_name).strip()
+            if clean_name and clean_name not in author_names:
+                author_names.append(clean_name)
+
+        if not author_names:
+            elems = driver.find_elements(By.CSS_SELECTOR, "div.article-authors span.contrib")
+            for elem in elems:
+                raw_name = driver.execute_script("return arguments[0].innerText || arguments[0].textContent;", elem)
+                clean_name = raw_name.splitlines()[0].strip() if raw_name else ""
+                if clean_name and clean_name not in author_names:
+                    author_names.append(clean_name)
+
+        data["authors"] = author_names
+    except Exception:
+        data["authors"] = []
+
+    # 3. Publication Date
+    try:
+        date_str = "N/A"
+        try:
+            date_elem = driver.find_element(By.CSS_SELECTOR, "span.article-meta-value, time[itemprop='datePublished']")
+            date_str = date_elem.text.strip()
+        except Exception:
+            meta_date = driver.find_element(By.CSS_SELECTOR, "meta[name='citation_publication_date'], meta[name='DC.date']")
+            date_str = meta_date.get_attribute("content")
+
+        data["published_date"] = date_str
+    except Exception:
+        data["published_date"] = "N/A"
+
+    # 4. Abstract
+    try:
+        raw_text = ""
+        try:
+            abs_elem = driver.find_element(By.CSS_SELECTOR, "div#article-item-abstract div.abstract, div.abstract")
+            # Clone and remove self-citation footer from abstract container if present
+            raw_text = driver.execute_script("""
+                var clone = arguments[0].cloneNode(true);
+                var selfCite = clone.querySelector('.self-citation, .alert');
+                if (selfCite) selfCite.remove();
+                return clone.innerText || clone.textContent;
+            """, abs_elem)
+        except Exception:
+            abs_elem = driver.find_element(By.CSS_SELECTOR, "#article-item-abstract-container, section.abstract")
+            raw_text = abs_elem.text.strip()
+
+        if "Abstract" in raw_text:
+            raw_text = raw_text[raw_text.find("Abstract"):]
+        else:
+            raw_text = "Abstract\n\n" + raw_text
+
+        data["abstract"] = format_abstract_text(raw_text)
+    except Exception:
+        data["abstract"] = "N/A"
+
+    return data
+
 def extract_nature_data(driver):
     """
     Extracts structured paper details from Nature (nature.com).
@@ -753,6 +835,16 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
                     scraped_data = extract_nature_data(current_driver)
                     
                     print(f"\n--- [ Nature Extracted Data ] ---")
+                    print(f"📌 Title          : {scraped_data.get('title')}")
+                    print(f"👥 Author Names   : {', '.join(scraped_data.get('authors', []))}")
+                    print(f"📅 Published Date : {scraped_data.get('published_date')}")
+                    print(f"\n📖 Abstract (Formatted Plain Text):\n\n{scraped_data.get('abstract')}\n")
+
+                elif "peerj.com" in parsed_domain:
+                    print(f"[*] PeerJ Domain Detected -> Extracting PeerJ Article Elements...")
+                    scraped_data = extract_peerj_data(current_driver)
+                    
+                    print(f"\n--- [ PeerJ Extracted Data ] ---")
                     print(f"📌 Title          : {scraped_data.get('title')}")
                     print(f"👥 Author Names   : {', '.join(scraped_data.get('authors', []))}")
                     print(f"📅 Published Date : {scraped_data.get('published_date')}")
