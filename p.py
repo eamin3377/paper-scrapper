@@ -353,6 +353,78 @@ def extract_tandfonline_data(driver):
 
     return data
 
+def extract_degruyterbrill_data(driver):
+    """
+    Extracts structured paper details from De Gruyter Brill (degruyterbrill.com).
+    - Title: h1.title-dgb, h1.title-dgb.no-ligatures, h1
+    - Authors: li.contributors-AUTHOR span.contributor-dgb button.displayName (e.g. Yanxue Li, Hongjian Gao)
+    - Publication Date: span.normal-product-text, meta[name='citation_publication_date']
+    - Abstract: div.abstract, div.abstract p
+    """
+    data = {}
+    
+    # 1. Title
+    try:
+        title_text = driver.execute_script("""
+            var h1 = document.querySelector("h1.title-dgb, h1[class*='title-dgb'], h1");
+            return h1 ? (h1.innerText || h1.textContent) : "";
+        """)
+        data["title"] = title_text.strip() if title_text else driver.title
+    except Exception:
+        data["title"] = driver.title
+
+    # 2. Authors
+    try:
+        author_names = driver.execute_script("""
+            var names = [];
+            var btns = document.querySelectorAll("li.contributors-AUTHOR span.contributor-dgb button.displayName, span.contributor-dgb button.displayName");
+            btns.forEach(function(b) {
+                var txt = (b.innerText || b.textContent).trim();
+                if (txt && names.indexOf(txt) === -1) names.push(txt);
+            });
+            if (names.length === 0) {
+                var popdowns = document.querySelectorAll("contributor-popdown");
+                popdowns.forEach(function(p) {
+                    var nameAttr = p.getAttribute("name");
+                    if (nameAttr && names.indexOf(nameAttr.trim()) === -1) names.push(nameAttr.trim());
+                });
+            }
+            return names;
+        """)
+        data["authors"] = author_names if author_names else []
+    except Exception:
+        data["authors"] = []
+
+    # 3. Publication Date
+    try:
+        date_str = driver.execute_script("""
+            var span = document.querySelector("span.normal-product-text, div.publicationDate span");
+            if (span) return span.innerText || span.textContent;
+            var meta = document.querySelector("meta[name='citation_publication_date'], meta[name='dc.Date']");
+            return meta ? meta.getAttribute("content") : "N/A";
+        """)
+        data["published_date"] = date_str.strip() if date_str else "N/A"
+    except Exception:
+        data["published_date"] = "N/A"
+
+    # 4. Abstract
+    try:
+        abs_text = driver.execute_script("""
+            var abs = document.querySelector("div.abstract, section.abstract, div[class*='abstract']");
+            return abs ? (abs.innerText || abs.textContent) : "";
+        """)
+        raw_text = abs_text.strip() if abs_text else ""
+        if "Abstract" in raw_text:
+            raw_text = raw_text[raw_text.find("Abstract"):]
+        else:
+            raw_text = "Abstract\n\n" + raw_text
+
+        data["abstract"] = format_abstract_text(raw_text)
+    except Exception:
+        data["abstract"] = "N/A"
+
+    return data
+
 def extract_peerj_data(driver):
     """
     Extracts structured paper details from PeerJ (peerj.com).
@@ -1047,6 +1119,16 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
                     scraped_data = extract_tandfonline_data(current_driver)
                     
                     print(f"\n--- [ Taylor & Francis Extracted Data ] ---")
+                    print(f"📌 Title          : {scraped_data.get('title')}")
+                    print(f"👥 Author Names   : {', '.join(scraped_data.get('authors', []))}")
+                    print(f"📅 Published Date : {scraped_data.get('published_date')}")
+                    print(f"\n📖 Abstract (Formatted Plain Text):\n\n{scraped_data.get('abstract')}\n")
+
+                elif "degruyterbrill.com" in parsed_domain or "degruyter.com" in parsed_domain:
+                    print(f"[*] De Gruyter Brill Domain Detected -> Extracting De Gruyter Article Elements...")
+                    scraped_data = extract_degruyterbrill_data(current_driver)
+                    
+                    print(f"\n--- [ De Gruyter Brill Extracted Data ] ---")
                     print(f"📌 Title          : {scraped_data.get('title')}")
                     print(f"👥 Author Names   : {', '.join(scraped_data.get('authors', []))}")
                     print(f"📅 Published Date : {scraped_data.get('published_date')}")
