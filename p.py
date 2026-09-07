@@ -317,7 +317,7 @@ def extract_mdpi_data(driver):
     - Title: h1.title / h1[itemprop='name']
     - Authors: div.art-authors -> div.profile-card-drop
     - Publication Date: span (starts with "Published:") or meta citation_publication_date
-    - Abstract: section.art-abstract / div.art-abstract
+    - Abstract: section.art-abstract / section.html-abstract / #html-abstract / div.html-p / div.art-abstract
     """
     data = {}
     
@@ -353,7 +353,6 @@ def extract_mdpi_data(driver):
     try:
         date_str = "N/A"
         try:
-            # Find span with Published:
             spans = driver.find_elements(By.CSS_SELECTOR, "div.pubhistory span, div.bib-identity span")
             for s in spans:
                 if "Published:" in s.text:
@@ -370,9 +369,9 @@ def extract_mdpi_data(driver):
     except Exception:
         data["published_date"] = "N/A"
 
-    # 4. Abstract
+    # 4. Abstract (Supports section.art-abstract, section.html-abstract, #html-abstract, div.html-p, div.art-abstract)
     try:
-        abs_elem = driver.find_element(By.CSS_SELECTOR, "section.art-abstract, div.art-abstract, div.abstract_div")
+        abs_elem = driver.find_element(By.CSS_SELECTOR, "section.html-abstract, #html-abstract, div.html-p, section.art-abstract, div.art-abstract, div.abstract_div")
         data["abstract"] = format_abstract_text(abs_elem.text.strip())
     except Exception:
         data["abstract"] = "N/A"
