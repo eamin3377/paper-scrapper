@@ -48,15 +48,21 @@ def create_lite_driver(headless=False, disable_images=False):
 def format_abstract_text(text):
     """
     Formats abstract text to ensure double spacing between section headings
-    (e.g., Background:, Objective:, Methods:, Results:, Conclusions:, etc.).
+    (e.g., Background:, Objective:, Methods:, Results:, Conclusions:)
+    and removes unwanted 'Systematic review registration:' lines.
     """
     if not text:
         return "N/A"
     
-    # Insert double newlines before common section keywords
-    pattern = r'(\b(?:Abstract|Background:|Objective:|Methods:|Results:|Conclusions:|Systematic review registration:))'
+    # 1. Remove registration lines (Systematic review registration, PROSPERO, Trial registration, etc.)
+    text = re.sub(r'(?i)\bSystematic review registration:.*$', '', text, flags=re.MULTILINE)
+    text = re.sub(r'(?i)\b(?:Trial|PROSPERO|Clinical trial)\s+registration:.*$', '', text, flags=re.MULTILINE)
+    
+    # 2. Insert double newlines before common section keywords
+    pattern = r'(\b(?:Abstract|Background:|Objective:|Methods:|Results:|Conclusions:))'
     formatted = re.sub(pattern, r'\n\n\1', text)
-    # Remove any extra leading/trailing whitespace and excess newlines (>2)
+    
+    # 3. Clean up excess newlines (>2) and whitespace
     formatted = re.sub(r'\n{3,}', '\n\n', formatted).strip()
     return formatted
 
@@ -88,7 +94,7 @@ def extract_springer_data(driver):
     except Exception:
         data["published_date"] = "N/A"
 
-    # 4. Abstract (Formatted with Spacing)
+    # 4. Abstract (Formatted with Spacing & Excluded Registrations)
     try:
         abs_elem = driver.find_element(By.CSS_SELECTOR, "#Abs1-section, #Abs1-content, div[id*='Abs']")
         data["abstract"] = format_abstract_text(abs_elem.text.strip())
@@ -148,7 +154,7 @@ def extract_frontiers_data(driver):
     except Exception:
         data["published_date"] = "N/A"
 
-    # 4. Abstract (Formatted with Spacing between sections)
+    # 4. Abstract (Formatted with Spacing & Excluded Registrations)
     try:
         abs_elem = driver.find_element(By.CSS_SELECTOR, "div#h1, div[id='h1']")
         paragraphs = abs_elem.find_elements(By.CSS_SELECTOR, "p, h2, h3")
@@ -158,7 +164,7 @@ def extract_frontiers_data(driver):
             i = 0
             while i < len(lines):
                 line = lines[i]
-                if (line.endswith(":") or line in ["Abstract", "Background:", "Objective:", "Methods:", "Results:", "Conclusions:", "Systematic review registration:"]) and i + 1 < len(lines) and not lines[i+1].endswith(":"):
+                if (line.endswith(":") or line in ["Abstract", "Background:", "Objective:", "Methods:", "Results:", "Conclusions:"]) and i + 1 < len(lines) and not lines[i+1].endswith(":"):
                     formatted_lines.append(f"{line} {lines[i+1]}")
                     i += 2
                 else:
