@@ -48,18 +48,18 @@ def create_lite_driver(headless=False, disable_images=False):
 def format_abstract_text(text):
     """
     Formats abstract text to ensure double spacing between section headings
-    (e.g., Background:, Objective:, Methods:, Results:, Conclusions:)
-    and removes unwanted 'Systematic review registration:' lines.
+    (e.g., Background, Objective, Methods, Results, Conclusion, etc.)
+    and removes unwanted registration lines.
     """
     if not text:
         return "N/A"
     
-    # 1. Remove registration lines (Systematic review registration, PROSPERO, Trial registration, etc.)
+    # 1. Remove registration lines
     text = re.sub(r'(?i)\bSystematic review registration:.*$', '', text, flags=re.MULTILINE)
     text = re.sub(r'(?i)\b(?:Trial|PROSPERO|Clinical trial)\s+registration:.*$', '', text, flags=re.MULTILINE)
     
     # 2. Insert double newlines before common section keywords
-    pattern = r'(\b(?:Abstract|Background:|Objective:|Methods:|Results:|Conclusions:))'
+    pattern = r'(\b(?:Abstract|Background:?|Objective:?|Methods:?|Results:?|Conclusions?:?))'
     formatted = re.sub(pattern, r'\n\n\1', text)
     
     # 3. Clean up excess newlines (>2) and whitespace
@@ -94,7 +94,7 @@ def extract_springer_data(driver):
     except Exception:
         data["published_date"] = "N/A"
 
-    # 4. Abstract (Formatted with Spacing & Excluded Registrations)
+    # 4. Abstract
     try:
         abs_elem = driver.find_element(By.CSS_SELECTOR, "#Abs1-section, #Abs1-content, div[id*='Abs']")
         data["abstract"] = format_abstract_text(abs_elem.text.strip())
@@ -154,7 +154,7 @@ def extract_frontiers_data(driver):
     except Exception:
         data["published_date"] = "N/A"
 
-    # 4. Abstract (Formatted with Spacing & Excluded Registrations)
+    # 4. Abstract
     try:
         abs_elem = driver.find_element(By.CSS_SELECTOR, "div#h1, div[id='h1']")
         paragraphs = abs_elem.find_elements(By.CSS_SELECTOR, "p, h2, h3")
@@ -171,6 +171,77 @@ def extract_frontiers_data(driver):
                     formatted_lines.append(line)
                     i += 1
             raw_abstract = "\n\n".join(formatted_lines)
+            data["abstract"] = format_abstract_text(raw_abstract)
+        else:
+            data["abstract"] = format_abstract_text(abs_elem.text.strip())
+    except Exception:
+        data["abstract"] = "N/A"
+
+    return data
+
+def extract_cell_data(driver):
+    """
+    Extracts structured paper details from Cell Press (cell.com).
+    - Title: h1[property='name']
+    - Authors: div.contributors -> span[property='author'] -> givenName + familyName
+    - Publication Date: span.meta-panel__onlineDate / meta[name='citation_online_date']
+    - Abstract: section#author-abstract / section[property='abstract']
+    """
+    data = {}
+    
+    # 1. Title
+    try:
+        title_elem = driver.find_element(By.CSS_SELECTOR, "h1[property='name'], h1.article-header__title, h1")
+        data["title"] = title_elem.text.strip()
+    except Exception:
+        data["title"] = driver.title
+
+    # 2. Authors
+    try:
+        author_names = []
+        author_elems = driver.find_elements(By.CSS_SELECTOR, "div.contributors span[property='author']")
+        for elem in author_elems:
+            try:
+                given = elem.find_element(By.CSS_SELECTOR, "span[property='givenName']").text.strip()
+                family = elem.find_element(By.CSS_SELECTOR, "span[property='familyName']").text.strip()
+                name = f"{given} {family}".strip()
+                if name and name not in author_names:
+                    author_names.append(name)
+            except Exception:
+                pass
+        
+        # Fallback to link texts
+        if not author_names:
+            links = driver.find_elements(By.CSS_SELECTOR, "div.contributors a[data-db-target-for]")
+            for a in links:
+                txt = a.text.strip()
+                if txt and txt not in author_names:
+                    author_names.append(txt)
+
+        data["authors"] = author_names
+    except Exception:
+        data["authors"] = []
+
+    # 3. Publication Date
+    try:
+        date_str = "N/A"
+        try:
+            date_elem = driver.find_element(By.CSS_SELECTOR, "span.meta-panel__onlineDate")
+            date_str = date_elem.text.strip()
+        except Exception:
+            meta_date = driver.find_element(By.CSS_SELECTOR, "meta[name='citation_online_date'], meta[name='citation_publication_date']")
+            date_str = meta_date.get_attribute("content")
+        data["published_date"] = date_str
+    except Exception:
+        data["published_date"] = "N/A"
+
+    # 4. Abstract
+    try:
+        abs_elem = driver.find_element(By.CSS_SELECTOR, "section#author-abstract, section[property='abstract'], div.article-tools__abstract")
+        sections = abs_elem.find_elements(By.CSS_SELECTOR, "section, div[id*='abssec'], p")
+        if sections:
+            lines = [sec.text.strip() for sec in sections if sec.text.strip()]
+            raw_abstract = "\n\n".join(lines)
             data["abstract"] = format_abstract_text(raw_abstract)
         else:
             data["abstract"] = format_abstract_text(abs_elem.text.strip())
@@ -292,6 +363,16 @@ def process_links(link_items, headless=False, disable_images=False, wait_time=5,
                     scraped_data = extract_frontiers_data(driver)
                     
                     print(f"\n--- [ Frontiers Extracted Data ] ---")
+                    print(f"📌 Title          : {scraped_data.get('title')}")
+                    print(f"👥 Author Names   : {', '.join(scraped_data.get('authors', []))}")
+                    print(f"📅 Published Date : {scraped_data.get('published_date')}")
+                    print(f"\n📖 Abstract (Formatted Plain Text):\n\n{scraped_data.get('abstract')}\n")
+
+                elif "cell.com" in parsed_domain:
+                    print(f"[*] Cell.com Domain Detected -> Extracting Cell Press Article Elements...")
+                    scraped_data = extract_cell_data(driver)
+                    
+                    print(f"\n--- [ Cell Press Extracted Data ] ---")
                     print(f"📌 Title          : {scraped_data.get('title')}")
                     print(f"👥 Author Names   : {', '.join(scraped_data.get('authors', []))}")
                     print(f"📅 Published Date : {scraped_data.get('published_date')}")
