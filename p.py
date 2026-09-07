@@ -6,6 +6,7 @@ import re
 import random
 from urllib.parse import urlparse
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.action_chains import ActionChains
 
 try:
     import undetected_chromedriver as uc
@@ -34,11 +35,9 @@ def create_lite_driver(headless=False, use_undetected=True):
         options.add_argument("--disable-popup-blocking")
         options.add_argument("--window-size=1280,800")
         
-        # Enable human-like user agent & options
         driver = uc.Chrome(options=options, use_subprocess=True)
         return driver
     else:
-        # Standard Selenium fallback
         from selenium import webdriver
         from selenium.webdriver.chrome.options import Options
         from selenium.webdriver.chrome.service import Service
@@ -57,12 +56,58 @@ def create_lite_driver(headless=False, use_undetected=True):
         driver = webdriver.Chrome(service=service, options=options)
         return driver
 
+def click_cloudflare_checkbox(driver):
+    """
+    Finds Cloudflare / Turnstile checkbox iframe and clicks it like a human.
+    """
+    try:
+        iframes = driver.find_elements(By.CSS_SELECTOR, "iframe[src*='challenges.cloudflare.com'], iframe[src*='turnstile'], iframe[title*='Cloudflare'], iframe[src*='challenge']")
+        if iframes:
+            for iframe in iframes:
+                try:
+                    driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", iframe)
+                    time.sleep(random.uniform(0.8, 1.5))
+                    
+                    driver.switch_to.frame(iframe)
+                    
+                    checkboxes = driver.find_elements(By.CSS_SELECTOR, "input[type='checkbox'], .mark, #challenge-stage, .ctp-checksum, label.cb-lb")
+                    if checkboxes:
+                        cb = checkboxes[0]
+                        time.sleep(random.uniform(0.5, 1.2))
+                        cb.click()
+                        print("[+] 👆 Clicked Cloudflare checkbox inside iframe!")
+                    else:
+                        body = driver.find_element(By.TAG_NAME, "body")
+                        body.click()
+                        print("[+] 👆 Clicked inside Cloudflare challenge iframe body!")
+                    
+                    driver.switch_to.default_content()
+                    time.sleep(2.5)
+                    return True
+                except Exception:
+                    driver.switch_to.default_content()
+        else:
+            wrappers = driver.find_elements(By.CSS_SELECTOR, "#turnstile-wrapper, .cf-turnstile, #challenge-stage, .ctp-checkbox-label")
+            if wrappers:
+                for w in wrappers:
+                    driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", w)
+                    time.sleep(random.uniform(0.6, 1.2))
+                    w.click()
+                    print("[+] 👆 Clicked Turnstile checkbox wrapper!")
+                    time.sleep(2.5)
+                    return True
+    except Exception as e:
+        driver.switch_to.default_content()
+    return False
+
 def check_and_wait_for_captcha(driver, timeout=45):
     """
-    Detects Cloudflare / CAPTCHA challenge pages and waits for human interaction to complete it.
+    Detects Cloudflare / CAPTCHA challenge pages, attempts a human checkbox click,
+    and waits for verification to clear.
     """
     start_time = time.time()
     captcha_detected = False
+    clicked_once = False
 
     while time.time() - start_time < timeout:
         title = driver.title.lower()
@@ -74,13 +119,18 @@ def check_and_wait_for_captcha(driver, timeout=45):
 
         if is_challenge:
             if not captcha_detected:
-                print("\n[!] 🚨 CAPTCHA / Cloudflare Verification Detected!")
-                print("[👉 Please click/complete the CAPTCHA in the open Chrome window. Waiting for human interaction...]")
+                print("\n[!] 🚨 CAPTCHA / Cloudflare Verification Page Detected!")
                 captcha_detected = True
+
+            # Attempt human checkbox click once
+            if not clicked_once:
+                print("[*] 🔍 Searching for Cloudflare checkbox to click...")
+                clicked_once = click_cloudflare_checkbox(driver)
+            
             time.sleep(2)
         else:
             if captcha_detected:
-                print("[+] ✅ CAPTCHA passed successfully! Continuing scraping...\n")
+                print("[+] ✅ CAPTCHA verification cleared! Continuing scraping...\n")
             break
 
 def human_scroll(driver):
@@ -341,7 +391,7 @@ def load_links_from_json(json_path):
 
 def process_links(link_items, headless=False, disable_images=False, wait_time=5, max_count=None):
     """
-    Opens extracted links sequentially using Undetected Browser & Human CAPTCHA handling.
+    Opens extracted links sequentially using Undetected Browser & Human Checkbox Clicker.
     """
     if not link_items:
         print("[!] No links to process.")
@@ -353,7 +403,7 @@ def process_links(link_items, headless=False, disable_images=False, wait_time=5,
 
     print(f"\n==================================================================")
     print(f"[*] STARTING UNDETECTED BROWSER SCRAPPER (Links: {len(link_items)} / Total: {total})")
-    print(f"[*] Mode: {'Headless (Silent)' if headless else 'Visible Window (GUI - Human CAPTCHA Ready)'}")
+    print(f"[*] Mode: {'Headless (Silent)' if headless else 'Visible Window (GUI - Human Clicker Enabled)'}")
     print(f"==================================================================\n")
 
     driver = create_lite_driver(headless=headless, use_undetected=True)
@@ -374,7 +424,7 @@ def process_links(link_items, headless=False, disable_images=False, wait_time=5,
                 start_time = time.time()
                 driver.get(url)
                 
-                # Check for Cloudflare / CAPTCHA and wait for human to click if present
+                # Check for Cloudflare / CAPTCHA and simulate human click on checkbox
                 check_and_wait_for_captcha(driver)
                 
                 # Simulate human interaction (scroll)
