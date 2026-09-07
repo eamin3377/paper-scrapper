@@ -367,7 +367,11 @@ def extract_degruyterbrill_data(driver):
     try:
         title_text = driver.execute_script("""
             var h1 = document.querySelector("h1.title-dgb, h1[class*='title-dgb'], h1");
-            return h1 ? (h1.innerText || h1.textContent) : "";
+            if (h1 && h1.innerText && h1.innerText.trim() !== "" && h1.innerText.indexOf("Page not found") === -1) {
+                return h1.innerText || h1.textContent;
+            }
+            var meta = document.querySelector("meta[name='citation_title'], meta[name='dc.Title']");
+            return meta ? meta.getAttribute("content") : "";
         """)
         data["title"] = title_text.strip() if title_text else driver.title
     except Exception:
@@ -1027,7 +1031,19 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
                         humanoid_mouse_and_scroll(current_driver)
                         wait_for_captcha_and_content(current_driver, target_selectors, timeout=8)
                 else:
-                    time.sleep(0.3)
+                    # For fast lite sites (Springer, MDPI, Frontiers, Nature, De Gruyter Brill), wait up to 6 seconds for title/body element
+                    fast_selectors = [
+                        "h1.title-dgb", "h1[class*='title-dgb']", "h1.c-article-title",
+                        "h1[data-test='article-title']", "h1.title", "h1[itemprop='name']",
+                        "h1.ArticleDetailsV4__main__title", "h1"
+                    ]
+                    for _ in range(12):
+                        try:
+                            if any(current_driver.find_elements(By.CSS_SELECTOR, s) for s in fast_selectors):
+                                break
+                        except Exception:
+                            pass
+                        time.sleep(0.5)
 
                 elapsed = time.time() - start_time
                 print(f"[+] Loaded & Content Detected in {elapsed:.2f} seconds!")
