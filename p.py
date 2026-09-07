@@ -11,7 +11,6 @@ from selenium.webdriver.common.action_chains import ActionChains
 try:
     import undetected_chromedriver as uc
     HAS_UC = True
-    # Monkeypatch uc.Chrome.__del__ to suppress WinError 6 on Windows garbage collection
     uc.Chrome.__del__ = lambda self: None
 except ImportError:
     HAS_UC = False
@@ -33,13 +32,46 @@ def get_installed_chrome_version():
         pass
     return 150
 
+def create_lite_driver(headless=False):
+    """
+    Creates a fast, lightweight, resource-optimized Selenium Chrome WebDriver.
+    Used for standard fast domains (Springer, Frontiers, MDPI, etc.).
+    """
+    from selenium import webdriver
+    from selenium.webdriver.chrome.options import Options
+    from selenium.webdriver.chrome.service import Service
+    from webdriver_manager.chrome import ChromeDriverManager
+
+    options = Options()
+    if headless:
+        options.add_argument("--headless=new")
+
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--disable-extensions")
+    options.add_argument("--disable-infobars")
+    options.add_argument("--disable-notifications")
+    options.add_argument("--disable-popup-blocking")
+    
+    prefs = {
+        "profile.managed_default_content_settings.images": 2, # Disable images for speed
+        "profile.default_content_setting_values.notifications": 2,
+    }
+    options.add_experimental_option("prefs", prefs)
+
+    options.page_load_strategy = 'eager'
+    options.add_argument("--window-size=1280,800")
+
+    service = Service(ChromeDriverManager().install())
+    driver = webdriver.Chrome(service=service, options=options)
+    return driver
+
 def create_humanoid_driver(headless=False):
     """
-    Creates a highly humanized Chrome driver with realistic stealth options,
-    custom User-Agent, and anti-bot flags to prevent Cloudflare detection.
+    Creates an Undetected Chrome Driver specifically for Cell.com (CAPTCHA protected).
     """
     chrome_major_version = get_installed_chrome_version()
-    
     user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
 
     if HAS_UC:
@@ -64,45 +96,11 @@ def create_humanoid_driver(headless=False):
             except Exception:
                 pass
 
-    from selenium import webdriver
-    from selenium.webdriver.chrome.options import Options
-    from selenium.webdriver.chrome.service import Service
-    from webdriver_manager.chrome import ChromeDriverManager
-
-    options = Options()
-    if headless:
-        options.add_argument("--headless=new")
-        
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--disable-blink-features=AutomationControlled")
-    options.add_argument(f"user-agent={user_agent}")
-    options.add_argument("--start-maximized")
-    options.add_argument("--lang=en-US,en")
-    
-    options.add_experimental_option("excludeSwitches", ["enable-automation"])
-    options.add_experimental_option('useAutomationExtension', False)
-
-    service = Service(ChromeDriverManager().install())
-    driver = webdriver.Chrome(service=service, options=options)
-    
-    try:
-        driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
-            "source": """
-                Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-                Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
-                Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
-            """
-        })
-    except Exception:
-        pass
-        
-    return driver
+    return create_lite_driver(headless=headless)
 
 def humanoid_mouse_and_scroll(driver):
     """
-    Simulates gentle human-like mouse movements and natural scrolling.
+    Simulates gentle human-like mouse movements and natural scrolling for Cell.com.
     """
     try:
         actions = ActionChains(driver)
@@ -113,19 +111,10 @@ def humanoid_mouse_and_scroll(driver):
         if total_height > 500:
             scroll_target = random.randint(200, min(800, total_height))
             driver.execute_script(f"window.scrollTo({{top: {scroll_target}, behavior: 'smooth'}});")
-            time.sleep(random.uniform(1.0, 2.0))
+            time.sleep(random.uniform(1.0, 1.5))
             driver.execute_script("window.scrollTo({top: 0, behavior: 'smooth'});")
     except Exception:
         pass
-
-def wait_for_human_page_load(driver, wait_seconds=8):
-    """
-    Waits naturally like a human user opening a webpage.
-    """
-    print(f"[*] ☕ Waiting {wait_seconds}s for natural page render & Cloudflare check...")
-    time.sleep(4)
-    humanoid_mouse_and_scroll(driver)
-    time.sleep(max(1, wait_seconds - 4))
 
 def format_abstract_text(text):
     """
@@ -318,10 +307,6 @@ def extract_cell_data(driver):
 def extract_mdpi_data(driver):
     """
     Extracts structured paper details from MDPI (mdpi.com).
-    - Title: h1.title / h1[itemprop='name']
-    - Authors: div.art-authors -> div.profile-card-drop (exact name node text)
-    - Publication Date: span (starts with "Published:") or meta citation_publication_date
-    - Abstract: div.html-p / section.html-abstract / #html-abstract / section.art-abstract
     """
     data = {}
     
@@ -332,12 +317,11 @@ def extract_mdpi_data(driver):
     except Exception:
         data["title"] = driver.title
 
-    # 2. Authors (Extract exact author name from div.profile-card-drop direct text node)
+    # 2. Authors
     try:
         author_names = []
         author_elems = driver.find_elements(By.CSS_SELECTOR, "div.art-authors div.profile-card-drop")
         for elem in author_elems:
-            # Extract direct node text via JavaScript to get pure name like 'Yaxin Tian'
             raw_name = driver.execute_script(
                 "return arguments[0].childNodes[0] ? arguments[0].childNodes[0].nodeValue : arguments[0].innerText;", elem
             )
@@ -347,7 +331,6 @@ def extract_mdpi_data(driver):
             if clean_name and clean_name not in author_names:
                 author_names.append(clean_name)
                 
-        # Fallback if profile-card-drop is not found
         if not author_names:
             links = driver.find_elements(By.CSS_SELECTOR, "div.art-authors span.inlineblock")
             for l in links:
@@ -446,9 +429,11 @@ def load_links_from_json(json_path):
         print(f"[!] Error reading file {json_path}: {e}")
         return []
 
-def process_links(link_items, headless=False, disable_images=False, wait_time=8, max_count=None):
+def process_links(link_items, headless=False, disable_images=False, max_count=None):
     """
-    Opens extracted links sequentially using Humanoid Browser Mode.
+    Opens extracted links sequentially:
+    - Uses Undetected Humanoid mode ONLY for cell.com (CAPTCHA protected).
+    - Uses fast, lightweight driver for all other domains (Springer, Frontiers, MDPI, etc.).
     """
     if not link_items:
         print("[!] No links to process.")
@@ -459,40 +444,63 @@ def process_links(link_items, headless=False, disable_images=False, wait_time=8,
         link_items = link_items[:max_count]
 
     print(f"\n==================================================================")
-    print(f"[*] STARTING HUMANOID BROWSER SCRAPPER (Links: {len(link_items)} / Total: {total})")
-    print(f"[*] Mode: {'Headless (Silent)' if headless else 'Visible Window (Human-like GUI)'}")
+    print(f"[*] STARTING MULTI-DOMAIN BROWSER SCRAPPER (Target Links: {len(link_items)})")
     print(f"==================================================================\n")
 
-    driver = create_humanoid_driver(headless=headless)
-
     results = []
+    current_driver = None
+    current_driver_type = None  # 'lite' or 'cell_humanoid'
+
     try:
         for item in link_items:
             url = item["link"]
             parsed_domain = urlparse(url).netloc.lower()
-            
+            needs_cell_humanoid = "cell.com" in parsed_domain
+
+            # Switch driver if required domain mode changes
+            required_type = "cell_humanoid" if needs_cell_humanoid else "lite"
+            if current_driver_type != required_type:
+                if current_driver:
+                    try:
+                        current_driver.quit()
+                    except Exception:
+                        pass
+                
+                if required_type == "cell_humanoid":
+                    print("[*] 🛡️ Initializing Undetected Humanoid Browser (Cell.com CAPTCHA Mode)...")
+                    current_driver = create_humanoid_driver(headless=headless)
+                else:
+                    print("[*] ⚡ Initializing Fast Lite Browser (Springer/Frontiers/MDPI Mode)...")
+                    current_driver = create_lite_driver(headless=headless)
+                
+                current_driver_type = required_type
+
             print(f"------------------------------------------------------------------")
             print(f"[+] ITEM [{item['index'] + 1}/{total}]")
             print(f"[+] Target URL: {url}")
             print(f"------------------------------------------------------------------")
             
             try:
-                print(f"[*] Opening URL with Humanoid Browser...")
                 start_time = time.time()
-                driver.get(url)
+                current_driver.get(url)
                 
-                # Humanoid natural wait and smooth scrolling
-                wait_for_human_page_load(driver, wait_seconds=wait_time)
+                # Extra humanoid delay & mouse move ONLY for cell.com
+                if needs_cell_humanoid:
+                    time.sleep(4)
+                    humanoid_mouse_and_scroll(current_driver)
+                    time.sleep(3)
+                else:
+                    time.sleep(1) # Fast DOM load for other domains
 
                 elapsed = time.time() - start_time
-                print(f"[+] Page loaded in {elapsed:.2f} seconds!")
+                print(f"[+] Loaded in {elapsed:.2f} seconds!")
 
                 scraped_data = {}
                 
                 # Domain-Specific Parsers
                 if "link.springer.com" in parsed_domain:
                     print(f"[*] Springer Domain Detected -> Extracting Springer Article Elements...")
-                    scraped_data = extract_springer_data(driver)
+                    scraped_data = extract_springer_data(current_driver)
                     
                     print(f"\n--- [ Springer Extracted Data ] ---")
                     print(f"📌 Title          : {scraped_data.get('title')}")
@@ -502,7 +510,7 @@ def process_links(link_items, headless=False, disable_images=False, wait_time=8,
 
                 elif "frontiersin.org" in parsed_domain:
                     print(f"[*] Frontiersin.org Domain Detected -> Extracting Frontiers Article Elements...")
-                    scraped_data = extract_frontiers_data(driver)
+                    scraped_data = extract_frontiers_data(current_driver)
                     
                     print(f"\n--- [ Frontiers Extracted Data ] ---")
                     print(f"📌 Title          : {scraped_data.get('title')}")
@@ -512,7 +520,7 @@ def process_links(link_items, headless=False, disable_images=False, wait_time=8,
 
                 elif "cell.com" in parsed_domain:
                     print(f"[*] Cell.com Domain Detected -> Extracting Cell Press Article Elements...")
-                    scraped_data = extract_cell_data(driver)
+                    scraped_data = extract_cell_data(current_driver)
                     
                     print(f"\n--- [ Cell Press Extracted Data ] ---")
                     print(f"📌 Title          : {scraped_data.get('title')}")
@@ -522,7 +530,7 @@ def process_links(link_items, headless=False, disable_images=False, wait_time=8,
 
                 elif "mdpi.com" in parsed_domain:
                     print(f"[*] MDPI Domain Detected -> Extracting MDPI Article Elements...")
-                    scraped_data = extract_mdpi_data(driver)
+                    scraped_data = extract_mdpi_data(current_driver)
                     
                     print(f"\n--- [ MDPI Extracted Data ] ---")
                     print(f"📌 Title          : {scraped_data.get('title')}")
@@ -531,8 +539,8 @@ def process_links(link_items, headless=False, disable_images=False, wait_time=8,
                     print(f"\n📖 Abstract (Formatted Plain Text):\n\n{scraped_data.get('abstract')}\n")
 
                 else:
-                    print(f"[+] Page Title : {driver.title}")
-                    print(f"[+] Final URL  : {driver.current_url}")
+                    print(f"[+] Page Title : {current_driver.title}")
+                    print(f"[+] Final URL  : {current_driver.current_url}")
 
                 results.append({
                     "url": url,
@@ -551,10 +559,11 @@ def process_links(link_items, headless=False, disable_images=False, wait_time=8,
         print(f"\n==================================================================")
         print(f"[*] SCRAPING COMPLETED | Closing Browser Session")
         print(f"==================================================================\n")
-        try:
-            driver.quit()
-        except Exception:
-            pass
+        if current_driver:
+            try:
+                current_driver.quit()
+            except Exception:
+                pass
 
     return results
 
@@ -564,7 +573,7 @@ if __name__ == "__main__":
     input_target = args[0] if args else None
     
     if input_target and (input_target.startswith("http://") or input_target.startswith("https://")):
-        process_links([{"index": 0, "title": "Direct URL", "link": input_target}], headless=is_headless, disable_images=False, wait_time=8)
+        process_links([{"index": 0, "title": "Direct URL", "link": input_target}], headless=is_headless, disable_images=False)
     else:
         file_to_open = None
         if input_target and os.path.isfile(input_target):
@@ -578,6 +587,6 @@ if __name__ == "__main__":
             print(f"[*] Reading input file: {file_to_open}")
             link_items = load_links_from_json(file_to_open)
             print(f"[*] Found {len(link_items)} link(s) to process.")
-            process_links(link_items, headless=is_headless, disable_images=False, wait_time=8)
+            process_links(link_items, headless=is_headless, disable_images=False)
         else:
             print("[!] Please provide a valid URL or JSON file path containing links (e.g. input.txt).")
