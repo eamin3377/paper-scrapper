@@ -403,6 +403,81 @@ def extract_mdpi_data(driver):
 
     return data
 
+def extract_wiley_data(driver):
+    """
+    Extracts structured paper details from Wiley Online Library (onlinelibrary.wiley.com).
+    - Title: h1.citation__title
+    - Authors: div.accordion-tabbed -> span.accordion-tabbed__tab-mobile -> a.author-name -> span (Cleaned to extract just the author name)
+    - Publication Date: span.epub-date
+    - Abstract: section.article-section__abstract / section.article-section__abstract div.article-section__content
+    """
+    data = {}
+    
+    # 1. Title
+    try:
+        title_elem = driver.find_element(By.CSS_SELECTOR, "h1.citation__title, h1.article-title, h1")
+        data["title"] = title_elem.text.strip()
+    except Exception:
+        data["title"] = driver.title
+
+    # 2. Authors
+    try:
+        author_names = []
+        author_elems = driver.find_elements(By.CSS_SELECTOR, "div.accordion-tabbed span.accordion-tabbed__tab-mobile a.author-name span, div.accordion-tabbed a.author-name span")
+        for elem in author_elems:
+            # Extract plain text of span (which excludes nested HTML if any or handles icons safely)
+            raw_name = driver.execute_script("return arguments[0].innerText || arguments[0].textContent;", elem)
+            clean_name = raw_name.strip() if raw_name else ""
+            if clean_name and clean_name not in author_names:
+                author_names.append(clean_name)
+
+        if not author_names:
+            links = driver.find_elements(By.CSS_SELECTOR, "a.author-name")
+            for a in links:
+                raw_name = driver.execute_script("return arguments[0].innerText || arguments[0].textContent;", a)
+                clean_name = raw_name.splitlines()[0].strip() if raw_name else ""
+                if clean_name and clean_name not in author_names:
+                    author_names.append(clean_name)
+
+        data["authors"] = author_names
+    except Exception:
+        data["authors"] = []
+
+    # 3. Publication Date
+    try:
+        date_str = "N/A"
+        try:
+            date_elem = driver.find_element(By.CSS_SELECTOR, "span.epub-date, span.primary-date")
+            date_str = date_elem.text.strip()
+        except Exception:
+            meta_date = driver.find_element(By.CSS_SELECTOR, "meta[name='citation_publication_date'], meta[name='citation_online_date']")
+            date_str = meta_date.get_attribute("content")
+
+        data["published_date"] = date_str
+    except Exception:
+        data["published_date"] = "N/A"
+
+    # 4. Abstract
+    try:
+        raw_text = ""
+        try:
+            abs_elem = driver.find_element(By.CSS_SELECTOR, "section.article-section__abstract div.article-section__content, section.article-section__abstract")
+            raw_text = abs_elem.text.strip()
+        except Exception:
+            abs_elem = driver.find_element(By.CSS_SELECTOR, "div.abstract-group, section[class*='abstract']")
+            raw_text = abs_elem.text.strip()
+
+        if "Abstract" in raw_text:
+            raw_text = raw_text[raw_text.find("Abstract"):]
+        else:
+            raw_text = "Abstract\n\n" + raw_text
+
+        data["abstract"] = format_abstract_text(raw_text)
+    except Exception:
+        data["abstract"] = "N/A"
+
+    return data
+
 def load_links_from_json(json_path):
     """
     Reads a JSON file and extracts paper metadata.
@@ -464,7 +539,7 @@ def load_links_from_json(json_path):
 def process_links(link_items, headless=False, disable_images=False, max_count=None):
     """
     Opens extracted links sequentially:
-    - Uses Undetected Humanoid mode ONLY for cell.com.
+    - Uses Undetected Humanoid mode for cell.com and wiley.com (CAPTCHA protected).
     - Uses fast, lightweight driver for all other domains.
     """
     if not link_items:
@@ -487,9 +562,9 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
         for item in link_items:
             url = item["link"]
             parsed_domain = urlparse(url).netloc.lower()
-            needs_cell_humanoid = "cell.com" in parsed_domain
+            needs_captcha_humanoid = ("cell.com" in parsed_domain) or ("wiley.com" in parsed_domain)
 
-            required_type = "cell_humanoid" if needs_cell_humanoid else "lite"
+            required_type = "captcha_humanoid" if needs_captcha_humanoid else "lite"
             if current_driver_type != required_type:
                 if current_driver:
                     try:
@@ -497,8 +572,8 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
                     except Exception:
                         pass
                 
-                if required_type == "cell_humanoid":
-                    print("[*] 🛡️ Initializing Undetected Humanoid Browser (Cell.com CAPTCHA Mode)...")
+                if required_type == "captcha_humanoid":
+                    print("[*] 🛡️ Initializing Undetected Humanoid Browser (Cell / Wiley CAPTCHA Mode)...")
                     current_driver = create_humanoid_driver(headless=headless)
                 else:
                     print("[*] ⚡ Initializing Fast Lite Browser (Springer/Frontiers/MDPI Mode)...")
@@ -515,7 +590,7 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
                 start_time = time.time()
                 current_driver.get(url)
                 
-                if needs_cell_humanoid:
+                if needs_captcha_humanoid:
                     time.sleep(4)
                     humanoid_mouse_and_scroll(current_driver)
                     time.sleep(3)
@@ -562,6 +637,16 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
                     scraped_data = extract_mdpi_data(current_driver)
                     
                     print(f"\n--- [ MDPI Extracted Data ] ---")
+                    print(f"📌 Title          : {scraped_data.get('title')}")
+                    print(f"👥 Author Names   : {', '.join(scraped_data.get('authors', []))}")
+                    print(f"📅 Published Date : {scraped_data.get('published_date')}")
+                    print(f"\n📖 Abstract (Formatted Plain Text):\n\n{scraped_data.get('abstract')}\n")
+
+                elif "wiley.com" in parsed_domain:
+                    print(f"[*] Wiley Online Library Detected -> Extracting Wiley Article Elements...")
+                    scraped_data = extract_wiley_data(current_driver)
+                    
+                    print(f"\n--- [ Wiley Extracted Data ] ---")
                     print(f"📌 Title          : {scraped_data.get('title')}")
                     print(f"👥 Author Names   : {', '.join(scraped_data.get('authors', []))}")
                     print(f"📅 Published Date : {scraped_data.get('published_date')}")
