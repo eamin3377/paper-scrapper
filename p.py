@@ -13,19 +13,42 @@ try:
     HAS_UC = True
 except ImportError:
     HAS_UC = False
-    from selenium import webdriver
-    from selenium.webdriver.chrome.options import Options
-    from selenium.webdriver.chrome.service import Service
-    from webdriver_manager.chrome import ChromeDriverManager
 
 # Ensure stdout handles UTF-8 encoding on Windows PowerShell / CMD
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
+def get_installed_chrome_version():
+    """
+    Detects the installed Chrome major version on Windows or defaults to 150.
+    """
+    try:
+        import winreg
+        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Google\Chrome\BLBeacon")
+        version, _ = winreg.QueryValueEx(key, "version")
+        major = int(version.split(".")[0])
+        return major
+    except Exception:
+        pass
+
+    try:
+        import winreg
+        key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\WOW6432Node\Google\Update\Clients\{8A69D345-D564-463c-AFF1-A69D9E530F96}")
+        version, _ = winreg.QueryValueEx(key, "pv")
+        major = int(version.split(".")[0])
+        return major
+    except Exception:
+        pass
+
+    return 150
+
 def create_lite_driver(headless=False, use_undetected=True):
     """
-    Configures and creates an Undetected Chrome WebDriver instance to prevent bot detection.
+    Configures and creates a Chrome WebDriver instance.
+    Uses version_main matching the installed Chrome browser (v150).
     """
+    chrome_major_version = get_installed_chrome_version()
+
     if use_undetected and HAS_UC:
         options = uc.ChromeOptions()
         if headless:
@@ -35,26 +58,51 @@ def create_lite_driver(headless=False, use_undetected=True):
         options.add_argument("--disable-popup-blocking")
         options.add_argument("--window-size=1280,800")
         
-        driver = uc.Chrome(options=options, use_subprocess=True)
-        return driver
-    else:
-        from selenium import webdriver
-        from selenium.webdriver.chrome.options import Options
-        from selenium.webdriver.chrome.service import Service
-        from webdriver_manager.chrome import ChromeDriverManager
+        # 1. Try with exact installed Chrome major version (e.g. 150)
+        try:
+            driver = uc.Chrome(options=options, version_main=chrome_major_version, use_subprocess=True)
+            return driver
+        except Exception as err1:
+            # 2. Try undetected_chromedriver default
+            try:
+                driver = uc.Chrome(options=options, use_subprocess=True)
+                return driver
+            except Exception as err2:
+                print(f"[*] Notice: undetected_chromedriver version match failed ({err1}). Falling back to standard stealth driver...")
 
-        options = Options()
-        if headless:
-            options.add_argument("--headless=new")
-        options.add_argument("--no-sandbox")
-        options.add_argument("--disable-dev-shm-usage")
-        options.add_argument("--disable-gpu")
-        options.add_argument("--disable-popup-blocking")
-        options.add_argument("--window-size=1280,800")
+    # Standard Selenium fallback with stealth anti-detection flags
+    from selenium import webdriver
+    from selenium.webdriver.chrome.options import Options
+    from selenium.webdriver.chrome.service import Service
+    from webdriver_manager.chrome import ChromeDriverManager
 
-        service = Service(ChromeDriverManager().install())
-        driver = webdriver.Chrome(service=service, options=options)
-        return driver
+    options = Options()
+    if headless:
+        options.add_argument("--headless=new")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--disable-blink-features=AutomationControlled")
+    options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    options.add_experimental_option('useAutomationExtension', False)
+    options.add_argument("--window-size=1280,800")
+
+    service = Service(ChromeDriverManager().install())
+    driver = webdriver.Chrome(service=service, options=options)
+    
+    # Hide webdriver property via CDP script
+    try:
+        driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
+            "source": """
+                Object.defineProperty(navigator, 'webdriver', {
+                    get: () => undefined
+                })
+            """
+        })
+    except Exception:
+        pass
+        
+    return driver
 
 def click_cloudflare_checkbox(driver):
     """
