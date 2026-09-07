@@ -131,7 +131,7 @@ def format_abstract_text(text):
     """
     Formats abstract text cleanly:
     - Excludes trailing Keywords, Graphical Abstracts, and Registration metadata lines.
-    - Adds double spacing before section headings (Background:, Objective:, Methods:, Results:, Conclusions:).
+    - Adds double spacing before section headings.
     """
     if not text:
         return "N/A"
@@ -319,9 +319,9 @@ def extract_mdpi_data(driver):
     """
     Extracts structured paper details from MDPI (mdpi.com).
     - Title: h1.title / h1[itemprop='name']
-    - Authors: div.art-authors -> div.profile-card-drop
+    - Authors: div.art-authors -> div.profile-card-drop (exact name node text)
     - Publication Date: span (starts with "Published:") or meta citation_publication_date
-    - Abstract: div.html-p / section.html-abstract / #html-abstract / section.art-abstract / div.art-abstract
+    - Abstract: div.html-p / section.html-abstract / #html-abstract / section.art-abstract
     """
     data = {}
     
@@ -332,19 +332,26 @@ def extract_mdpi_data(driver):
     except Exception:
         data["title"] = driver.title
 
-    # 2. Authors
+    # 2. Authors (Extract exact author name from div.profile-card-drop direct text node)
     try:
         author_names = []
-        author_elems = driver.find_elements(By.CSS_SELECTOR, "div.art-authors div.profile-card-drop, div.art-authors span.sciprofiles-link__name")
+        author_elems = driver.find_elements(By.CSS_SELECTOR, "div.art-authors div.profile-card-drop")
         for elem in author_elems:
-            name = elem.text.strip()
-            if name and name not in author_names:
-                author_names.append(name)
+            # Extract direct node text via JavaScript to get pure name like 'Yaxin Tian'
+            raw_name = driver.execute_script(
+                "return arguments[0].childNodes[0] ? arguments[0].childNodes[0].nodeValue : arguments[0].innerText;", elem
+            )
+            if not raw_name or not raw_name.strip():
+                raw_name = elem.text.splitlines()[0] if elem.text else ""
+            clean_name = raw_name.strip()
+            if clean_name and clean_name not in author_names:
+                author_names.append(clean_name)
                 
+        # Fallback if profile-card-drop is not found
         if not author_names:
             links = driver.find_elements(By.CSS_SELECTOR, "div.art-authors span.inlineblock")
             for l in links:
-                txt = l.text.split("\n")[0].replace("by", "").replace(",", "").strip()
+                txt = l.text.splitlines()[0].replace("by", "").replace(",", "").strip()
                 if txt and txt not in author_names:
                     author_names.append(txt)
 
@@ -372,7 +379,7 @@ def extract_mdpi_data(driver):
     except Exception:
         data["published_date"] = "N/A"
 
-    # 4. Abstract (Targets div.html-p or section.html-abstract directly to extract pure abstract paragraph)
+    # 4. Abstract
     try:
         abs_elem = driver.find_element(By.CSS_SELECTOR, "div.html-p, section.html-abstract, #html-abstract, section.art-abstract, div.art-abstract, div.abstract_div")
         data["abstract"] = format_abstract_text(abs_elem.text.strip())
