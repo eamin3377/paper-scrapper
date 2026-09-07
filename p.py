@@ -55,7 +55,7 @@ def create_lite_driver(headless=False):
     options.add_argument("--disable-popup-blocking")
     
     prefs = {
-        "profile.managed_default_content_settings.images": 2, # Disable images for speed
+        "profile.managed_default_content_settings.images": 2,
         "profile.default_content_setting_values.notifications": 2,
     }
     options.add_experimental_option("prefs", prefs)
@@ -119,13 +119,14 @@ def humanoid_mouse_and_scroll(driver):
 def format_abstract_text(text):
     """
     Formats abstract text cleanly:
-    - Excludes trailing Keywords, Graphical Abstracts, and Registration metadata lines.
+    - Excludes trailing Keywords, Graphical Abstracts, and UI metadata lines.
     - Adds double spacing before section headings.
     """
     if not text:
         return "N/A"
     
-    # 1. Strip out Keywords / Graphical Abstract / Registration sections
+    # 1. Strip out UI buttons/navigation text & Keywords / Graphical Abstract / Registration sections
+    text = re.sub(r'(?i)\b(?:first_page|settings|Order Article Reprints|Open Access|Download|keyboard_arrow_down|Browse Figures|Versions|Notes)\b', '', text)
     text = re.sub(r'(?is)\bKeywords?:.*$', '', text)
     text = re.sub(r'(?is)\bKey\s+words?:.*$', '', text)
     text = re.sub(r'(?is)\bGraphical\s+Abstract.*$', '', text)
@@ -139,6 +140,16 @@ def format_abstract_text(text):
     # 3. Clean up excess newlines (>2) and whitespace
     formatted = re.sub(r'\n{3,}', '\n\n', formatted).strip()
     return formatted
+
+def clean_title_text(text):
+    """
+    Removes MDPI UI badges like 'first_page', 'settings', 'Order Article Reprints', 'Open Access', 'Review', etc. from title.
+    """
+    if not text:
+        return ""
+    # Strip UI navigation badges
+    cleaned = re.sub(r'^(?:first_page|settings|Order\s+Article\s+Reprints|Open\s+AccessReview|Open\s+Access|Review|Article|Communication|Editorial)\s*', '', text, flags=re.IGNORECASE).strip()
+    return cleaned
 
 def extract_springer_data(driver):
     """
@@ -306,16 +317,16 @@ def extract_cell_data(driver):
 
 def extract_mdpi_data(driver):
     """
-    Extracts structured paper details from MDPI (mdpi.com).
+    Extracts structured paper details from MDPI (mdpi.com), excluding UI navigation badges.
     """
     data = {}
     
-    # 1. Title
+    # 1. Title (Cleaned of UI badges like first_page, settings, Order Article Reprints, Open AccessReview)
     try:
         title_elem = driver.find_element(By.CSS_SELECTOR, "h1.title, h1[itemprop='name'], h1")
-        data["title"] = title_elem.text.strip()
+        data["title"] = clean_title_text(title_elem.text.strip())
     except Exception:
-        data["title"] = driver.title
+        data["title"] = clean_title_text(driver.title)
 
     # 2. Authors
     try:
@@ -432,8 +443,8 @@ def load_links_from_json(json_path):
 def process_links(link_items, headless=False, disable_images=False, max_count=None):
     """
     Opens extracted links sequentially:
-    - Uses Undetected Humanoid mode ONLY for cell.com (CAPTCHA protected).
-    - Uses fast, lightweight driver for all other domains (Springer, Frontiers, MDPI, etc.).
+    - Uses Undetected Humanoid mode ONLY for cell.com.
+    - Uses fast, lightweight driver for all other domains.
     """
     if not link_items:
         print("[!] No links to process.")
@@ -449,7 +460,7 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
 
     results = []
     current_driver = None
-    current_driver_type = None  # 'lite' or 'cell_humanoid'
+    current_driver_type = None
 
     try:
         for item in link_items:
@@ -457,7 +468,6 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
             parsed_domain = urlparse(url).netloc.lower()
             needs_cell_humanoid = "cell.com" in parsed_domain
 
-            # Switch driver if required domain mode changes
             required_type = "cell_humanoid" if needs_cell_humanoid else "lite"
             if current_driver_type != required_type:
                 if current_driver:
@@ -484,20 +494,18 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
                 start_time = time.time()
                 current_driver.get(url)
                 
-                # Extra humanoid delay & mouse move ONLY for cell.com
                 if needs_cell_humanoid:
                     time.sleep(4)
                     humanoid_mouse_and_scroll(current_driver)
                     time.sleep(3)
                 else:
-                    time.sleep(1) # Fast DOM load for other domains
+                    time.sleep(1)
 
                 elapsed = time.time() - start_time
                 print(f"[+] Loaded in {elapsed:.2f} seconds!")
 
                 scraped_data = {}
                 
-                # Domain-Specific Parsers
                 if "link.springer.com" in parsed_domain:
                     print(f"[*] Springer Domain Detected -> Extracting Springer Article Elements...")
                     scraped_data = extract_springer_data(current_driver)
