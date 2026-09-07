@@ -1,11 +1,12 @@
 # Paper Scrapper - Lite Selenium Browser
 
-A lightweight, resource-optimized Selenium browser script built in Python to open URLs quickly with minimal CPU, RAM, and network consumption.
+A lightweight, resource-optimized Selenium browser script built in Python to open URLs quickly.
 
 ## Features
 
-- ⚡ **Headless Mode**: Runs Chrome in `--headless=new` mode without launching GUI windows.
-- 🖼️ **Disabled Images & Notifications**: Saves bandwidth and loads pages faster by blocking image fetching and popup notifications.
+- 👁️ **Visible Inspection Mode (Default)**: Opens a visible Chrome browser window so you can watch the page loading and inspect elements live.
+- ⚡ **Headless Mode Support**: Pass `--headless` if you want to run silently in the background.
+- 🖼️ **Optional Image & Notification Blocking**: Saves bandwidth and loads pages faster.
 - 🚀 **Eager Page Loading**: Configured with `eager` page load strategy to start processing as soon as the DOM is ready.
 - 🛠️ **Automatic Driver Management**: Automatically downloads and manages `chromedriver` using `webdriver-manager`.
 
@@ -33,13 +34,19 @@ A lightweight, resource-optimized Selenium browser script built in Python to ope
 
 ## Usage
 
-Run the script by passing any target URL as an argument:
+### 1. Visible Mode (Default)
+Run the script to open a visible Chrome window for visual inspection:
 
 ```bash
 python p.py https://example.com
 ```
 
-If no URL is provided, it defaults to `https://example.com`.
+### 2. Headless Mode
+Add `--headless` to run silently in the background:
+
+```bash
+python p.py https://example.com --headless
+```
 
 ### Python Import Usage
 
@@ -48,6 +55,7 @@ You can also import `open_url` or `create_lite_driver` into your own scripts:
 ```python
 from p import open_url
 
-result = open_url("https://news.ycombinator.com", headless=True, disable_images=True)
+# Visible window with 5-second pause to inspect page
+result = open_url("https://news.ycombinator.com", headless=False, wait_time=5)
 print(result["title"])
 ```
