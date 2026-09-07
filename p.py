@@ -2,6 +2,7 @@ import sys
 import os
 import json
 import time
+import re
 from urllib.parse import urlparse
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -79,6 +80,70 @@ def extract_springer_data(driver):
     # 4. Abstract (Plain Text)
     try:
         abs_elem = driver.find_element(By.CSS_SELECTOR, "#Abs1-section, #Abs1-content, div[id*='Abs']")
+        data["abstract"] = abs_elem.text.strip()
+    except Exception:
+        data["abstract"] = "N/A"
+
+    return data
+
+def extract_frontiers_data(driver):
+    """
+    Extracts structured paper details from Frontiers (frontiersin.org).
+    - Title: h1.ArticleDetailsV4__main__title
+    - Authors: ul.PeopleList__list -> p.PeopleListItem__name
+    - Publication Date: p.ArticleLayoutHeader__info__journalDate -> second span (strip comma)
+    - Abstract: div#h1 plain text
+    """
+    data = {}
+    
+    # 1. Title
+    try:
+        title_elem = driver.find_element(By.CSS_SELECTOR, "h1.ArticleDetailsV4__main__title, h1")
+        data["title"] = title_elem.text.strip()
+    except Exception:
+        data["title"] = driver.title
+
+    # 2. Authors
+    try:
+        author_names = []
+        imgs = driver.find_elements(By.CSS_SELECTOR, "a.PeopleListItem img.Avatar__img")
+        if imgs:
+            for img in imgs:
+                alt = img.get_attribute("alt")
+                if alt and alt.strip():
+                    author_names.append(alt.strip())
+        
+        if not author_names:
+            name_elems = driver.find_elements(By.CSS_SELECTOR, "p.PeopleListItem__name")
+            for elem in name_elems:
+                name_text = driver.execute_script("return arguments[0].childNodes[0].nodeValue;", elem)
+                if name_text and name_text.strip():
+                    author_names.append(name_text.strip())
+                    
+        data["authors"] = author_names
+    except Exception:
+        data["authors"] = []
+
+    # 3. Publication Date
+    try:
+        date_str = "N/A"
+        try:
+            meta_date = driver.find_element(By.CSS_SELECTOR, "meta[name='citation_publication_date']")
+            date_str = meta_date.get_attribute("content")
+        except Exception:
+            date_elem = driver.find_element(By.CSS_SELECTOR, "p.ArticleLayoutHeader__info__journalDate, p[class*='journalDate']")
+            text = date_elem.text.strip()
+            if "," in text:
+                date_str = text.split(",")[-1].strip()
+            else:
+                date_str = text
+        data["published_date"] = date_str
+    except Exception:
+        data["published_date"] = "N/A"
+
+    # 4. Abstract (Plain Text)
+    try:
+        abs_elem = driver.find_element(By.CSS_SELECTOR, "div#h1, div[id='h1']")
         data["abstract"] = abs_elem.text.strip()
     except Exception:
         data["abstract"] = "N/A"
@@ -182,7 +247,7 @@ def process_links(link_items, headless=False, disable_images=False, wait_time=5,
 
                 scraped_data = {}
                 
-                # Springer Specific Parser
+                # Domain-Specific Parsers
                 if "link.springer.com" in parsed_domain:
                     print(f"[*] Springer Domain Detected -> Extracting Springer Article Elements...")
                     scraped_data = extract_springer_data(driver)
@@ -192,6 +257,17 @@ def process_links(link_items, headless=False, disable_images=False, wait_time=5,
                     print(f"👥 Author Names   : {', '.join(scraped_data.get('authors', []))}")
                     print(f"📅 Published Date : {scraped_data.get('published_date')}")
                     print(f"\n📖 Abstract (Plain Text):\n{scraped_data.get('abstract')}\n")
+
+                elif "frontiersin.org" in parsed_domain:
+                    print(f"[*] Frontiersin.org Domain Detected -> Extracting Frontiers Article Elements...")
+                    scraped_data = extract_frontiers_data(driver)
+                    
+                    print(f"\n--- [ Frontiers Extracted Data ] ---")
+                    print(f"📌 Title          : {scraped_data.get('title')}")
+                    print(f"👥 Author Names   : {', '.join(scraped_data.get('authors', []))}")
+                    print(f"📅 Published Date : {scraped_data.get('published_date')}")
+                    print(f"\n📖 Abstract (Plain Text):\n{scraped_data.get('abstract')}\n")
+
                 else:
                     # General Fallback Extractor
                     print(f"[+] Page Title : {driver.title}")
