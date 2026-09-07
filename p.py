@@ -6,6 +6,7 @@ import re
 import random
 from urllib.parse import urlparse
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.action_chains import ActionChains
 
 try:
     import undetected_chromedriver as uc
@@ -19,42 +20,38 @@ if hasattr(sys.stdout, 'reconfigure'):
 
 def get_installed_chrome_version():
     """
-    Detects the installed Chrome major version on Windows or defaults to 150.
+    Detects installed Chrome major version on Windows or defaults to 150.
     """
     try:
         import winreg
         key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Google\Chrome\BLBeacon")
         version, _ = winreg.QueryValueEx(key, "version")
-        major = int(version.split(".")[0])
-        return major
+        return int(version.split(".")[0])
     except Exception:
         pass
-
-    try:
-        import winreg
-        key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\WOW6432Node\Google\Update\Clients\{8A69D345-D564-463c-AFF1-A69D9E530F96}")
-        version, _ = winreg.QueryValueEx(key, "pv")
-        major = int(version.split(".")[0])
-        return major
-    except Exception:
-        pass
-
     return 150
 
-def create_lite_driver(headless=False, use_undetected=True):
+def create_humanoid_driver(headless=False):
     """
-    Configures and creates a Chrome WebDriver instance using installed Chrome version.
+    Creates a highly humanized Chrome driver with realistic stealth options,
+    custom User-Agent, and anti-bot flags to prevent Cloudflare detection.
     """
     chrome_major_version = get_installed_chrome_version()
+    
+    # Common realistic desktop User-Agent
+    user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
 
-    if use_undetected and HAS_UC:
+    if HAS_UC:
         options = uc.ChromeOptions()
         if headless:
             options.add_argument("--headless=new")
+        
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")
         options.add_argument("--disable-popup-blocking")
-        options.add_argument("--window-size=1280,800")
+        options.add_argument("--start-maximized")
+        options.add_argument(f"user-agent={user_agent}")
+        options.add_argument("--lang=en-US,en")
         
         try:
             driver = uc.Chrome(options=options, version_main=chrome_major_version, use_subprocess=True)
@@ -63,10 +60,10 @@ def create_lite_driver(headless=False, use_undetected=True):
             try:
                 driver = uc.Chrome(options=options, use_subprocess=True)
                 return driver
-            except Exception as err:
-                print(f"[*] Notice: undetected_chromedriver failed ({err}). Falling back to standard stealth driver...")
+            except Exception:
+                pass
 
-    # Standard Selenium fallback with stealth anti-detection flags
+    # Standard Selenium fallback with stealth settings
     from selenium import webdriver
     from selenium.webdriver.chrome.options import Options
     from selenium.webdriver.chrome.service import Service
@@ -75,13 +72,17 @@ def create_lite_driver(headless=False, use_undetected=True):
     options = Options()
     if headless:
         options.add_argument("--headless=new")
+        
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
     options.add_argument("--disable-blink-features=AutomationControlled")
+    options.add_argument(f"user-agent={user_agent}")
+    options.add_argument("--start-maximized")
+    options.add_argument("--lang=en-US,en")
+    
     options.add_experimental_option("excludeSwitches", ["enable-automation"])
     options.add_experimental_option('useAutomationExtension', False)
-    options.add_argument("--window-size=1280,800")
 
     service = Service(ChromeDriverManager().install())
     driver = webdriver.Chrome(service=service, options=options)
@@ -89,9 +90,9 @@ def create_lite_driver(headless=False, use_undetected=True):
     try:
         driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
             "source": """
-                Object.defineProperty(navigator, 'webdriver', {
-                    get: () => undefined
-                })
+                Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+                Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+                Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
             """
         })
     except Exception:
@@ -99,90 +100,40 @@ def create_lite_driver(headless=False, use_undetected=True):
         
     return driver
 
-def click_cloudflare_checkbox(driver):
+def humanoid_mouse_and_scroll(driver):
     """
-    Finds Cloudflare / Turnstile checkbox iframe and clicks it like a human.
+    Simulates gentle human-like mouse movements and natural scrolling.
+    Does not spam DOM elements or trigger bot detection heuristics.
     """
     try:
-        iframes = driver.find_elements(By.CSS_SELECTOR, "iframe[src*='challenges.cloudflare.com'], iframe[src*='turnstile'], iframe[title*='Cloudflare'], iframe[src*='challenge'], iframe")
-        if iframes:
-            for iframe in iframes:
-                try:
-                    driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", iframe)
-                    time.sleep(random.uniform(0.5, 1.0))
-                    
-                    driver.switch_to.frame(iframe)
-                    
-                    checkboxes = driver.find_elements(By.CSS_SELECTOR, "input[type='checkbox'], .mark, #challenge-stage, .ctp-checksum, label.cb-lb, div.checkbox")
-                    if checkboxes:
-                        cb = checkboxes[0]
-                        time.sleep(random.uniform(0.4, 0.8))
-                        cb.click()
-                        print("[+] 👆 Clicked Cloudflare checkbox inside iframe!")
-                        driver.switch_to.default_content()
-                        return True
-                    else:
-                        body = driver.find_element(By.TAG_NAME, "body")
-                        body.click()
-                        driver.switch_to.default_content()
-                        return True
-                except Exception:
-                    driver.switch_to.default_content()
+        # Subtle random mouse jiggle
+        actions = ActionChains(driver)
+        actions.move_by_offset(random.randint(10, 50), random.randint(10, 50)).perform()
+        time.sleep(random.uniform(0.5, 1.2))
         
-        wrappers = driver.find_elements(By.CSS_SELECTOR, "#turnstile-wrapper, .cf-turnstile, #challenge-stage, .ctp-checkbox-label")
-        if wrappers:
-            for w in wrappers:
-                driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", w)
-                time.sleep(random.uniform(0.5, 0.9))
-                w.click()
-                print("[+] 👆 Clicked Turnstile checkbox wrapper!")
-                return True
-    except Exception:
-        driver.switch_to.default_content()
-    return False
-
-def check_and_wait_for_captcha(driver, timeout=60):
-    """
-    Detects Cloudflare / CAPTCHA challenge pages and periodically clicks the checkbox while waiting.
-    """
-    start_time = time.time()
-    captcha_detected = False
-
-    while time.time() - start_time < timeout:
-        title = driver.title.lower()
-        page_source = driver.page_source.lower()
-
-        is_challenge = any(keyword in title or keyword in page_source for keyword in [
-            "just a moment", "security check", "cloudflare", "challenge-running", "verify you are human", "attention required"
-        ])
-
-        if is_challenge:
-            if not captcha_detected:
-                print("\n[!] 🚨 CAPTCHA / Cloudflare Verification Page Detected!")
-                print("[👉 Please click/complete the CAPTCHA in the open Chrome window if needed...]")
-                captcha_detected = True
-
-            # Periodically attempt to find and click the checkbox
-            click_cloudflare_checkbox(driver)
-            time.sleep(3)
-        else:
-            if captcha_detected:
-                print("[+] ✅ CAPTCHA verification cleared! Continuing scraping...\n")
-            break
-
-def human_scroll(driver):
-    """
-    Simulates gentle human-like scrolling on the page.
-    """
-    try:
+        # Smooth scroll
         total_height = int(driver.execute_script("return document.body.scrollHeight"))
-        for i in range(1, 4):
-            scroll_to = (total_height // 4) * i
-            driver.execute_script(f"window.scrollTo(0, {scroll_to});")
-            time.sleep(random.uniform(0.5, 1.2))
-        driver.execute_script("window.scrollTo(0, 0);")
+        if total_height > 500:
+            scroll_target = random.randint(200, min(800, total_height))
+            driver.execute_script(f"window.scrollTo({{top: {scroll_target}, behavior: 'smooth'}});")
+            time.sleep(random.uniform(1.0, 2.0))
+            driver.execute_script("window.scrollTo({top: 0, behavior: 'smooth'});")
     except Exception:
         pass
+
+def wait_for_human_page_load(driver, wait_seconds=10):
+    """
+    Waits naturally like a human user opening a webpage.
+    Avoids aggressive polling loops that cause Cloudflare to stay in infinite loading mode.
+    """
+    print(f"[*] ☕ Waiting {wait_seconds}s for natural page render & Cloudflare check...")
+    
+    # Natural delay for Cloudflare verification to render
+    time.sleep(4)
+    humanoid_mouse_and_scroll(driver)
+    
+    # Remaining wait
+    time.sleep(max(1, wait_seconds - 4))
 
 def format_abstract_text(text):
     """
@@ -313,7 +264,7 @@ def extract_cell_data(driver):
     """
     data = {}
     try:
-        title_elem = driver.find_element(By.CSS_SELECTOR, "h1[property='name'], h1.article-header__title, h1")
+        title_elem = driver.find_element(By.CSS_SELECTOR, "h1[property='name'], h1.article-header__title, h1.article-title, h1")
         data["title"] = title_elem.text.strip()
     except Exception:
         data["title"] = driver.title
@@ -355,7 +306,7 @@ def extract_cell_data(driver):
         data["published_date"] = "N/A"
 
     try:
-        abs_elem = driver.find_element(By.CSS_SELECTOR, "section#author-abstract, section[property='abstract'], div.article-tools__abstract, div.abstract")
+        abs_elem = driver.find_element(By.CSS_SELECTOR, "section#author-abstract, section[property='abstract'], div.article-tools__abstract, div.abstract, #abstract")
         sections = abs_elem.find_elements(By.CSS_SELECTOR, "section, div[id*='abssec'], p")
         if sections:
             lines = [sec.text.strip() for sec in sections if sec.text.strip()]
@@ -426,9 +377,9 @@ def load_links_from_json(json_path):
         print(f"[!] Error reading file {json_path}: {e}")
         return []
 
-def process_links(link_items, headless=False, disable_images=False, wait_time=5, max_count=None):
+def process_links(link_items, headless=False, disable_images=False, wait_time=8, max_count=None):
     """
-    Opens extracted links sequentially using Undetected Browser & Human Checkbox Clicker.
+    Opens extracted links sequentially using Humanoid Browser Mode.
     """
     if not link_items:
         print("[!] No links to process.")
@@ -439,13 +390,13 @@ def process_links(link_items, headless=False, disable_images=False, wait_time=5,
         link_items = link_items[:max_count]
 
     print(f"\n==================================================================")
-    print(f"[*] STARTING UNDETECTED BROWSER SCRAPPER (Links: {len(link_items)} / Total: {total})")
-    print(f"[*] Mode: {'Headless (Silent)' if headless else 'Visible Window (GUI - Human Clicker Enabled)'}")
+    print(f"[*] STARTING HUMANOID BROWSER SCRAPPER (Links: {len(link_items)} / Total: {total})")
+    print(f"[*] Mode: {'Headless (Silent)' if headless else 'Visible Window (Human-like GUI)'}")
     print(f"==================================================================\n")
 
-    driver = create_lite_driver(headless=headless, use_undetected=True)
+    driver = create_humanoid_driver(headless=headless)
     
-    # Prevent WinError 6 on garbage collection for undetected_chromedriver
+    # Prevent WinError 6 on garbage collection
     if hasattr(driver, '__del__'):
         driver.__del__ = lambda: None
 
@@ -461,18 +412,15 @@ def process_links(link_items, headless=False, disable_images=False, wait_time=5,
             print(f"------------------------------------------------------------------")
             
             try:
-                print(f"[*] Navigating to URL with Undetected Browser...")
+                print(f"[*] Opening URL with Humanoid Browser...")
                 start_time = time.time()
                 driver.get(url)
                 
-                # Check for Cloudflare / CAPTCHA and simulate human click on checkbox
-                check_and_wait_for_captcha(driver)
-                
-                # Simulate human interaction (scroll)
-                human_scroll(driver)
+                # Humanoid natural wait and smooth scrolling
+                wait_for_human_page_load(driver, wait_seconds=wait_time)
 
                 elapsed = time.time() - start_time
-                print(f"[+] Loaded in {elapsed:.2f} seconds!")
+                print(f"[+] Page loaded in {elapsed:.2f} seconds!")
 
                 scraped_data = {}
                 
@@ -511,10 +459,6 @@ def process_links(link_items, headless=False, disable_images=False, wait_time=5,
                     print(f"[+] Page Title : {driver.title}")
                     print(f"[+] Final URL  : {driver.current_url}")
 
-                if wait_time > 0 and not headless:
-                    print(f"[*] Keeping browser visible for {wait_time}s inspection...")
-                    time.sleep(wait_time)
-
                 results.append({
                     "url": url,
                     "scraped_data": scraped_data,
@@ -545,7 +489,7 @@ if __name__ == "__main__":
     input_target = args[0] if args else None
     
     if input_target and (input_target.startswith("http://") or input_target.startswith("https://")):
-        process_links([{"index": 0, "title": "Direct URL", "link": input_target}], headless=is_headless, disable_images=False, wait_time=5)
+        process_links([{"index": 0, "title": "Direct URL", "link": input_target}], headless=is_headless, disable_images=False, wait_time=8)
     else:
         file_to_open = None
         if input_target and os.path.isfile(input_target):
@@ -559,6 +503,6 @@ if __name__ == "__main__":
             print(f"[*] Reading input file: {file_to_open}")
             link_items = load_links_from_json(file_to_open)
             print(f"[*] Found {len(link_items)} link(s) to process.")
-            process_links(link_items, headless=is_headless, disable_images=False, wait_time=5)
+            process_links(link_items, headless=is_headless, disable_images=False, wait_time=8)
         else:
             print("[!] Please provide a valid URL or JSON file path containing links (e.g. input.txt).")
