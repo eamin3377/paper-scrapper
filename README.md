@@ -36,7 +36,7 @@ A lightweight, resource-optimized Selenium browser script built in Python to ope
 Run the script by passing any target URL as an argument:
 
 ```bash
-python lite_browser.py https://example.com
+python p.py https://example.com
 ```
 
 If no URL is provided, it defaults to `https://example.com`.
@@ -46,7 +46,7 @@ If no URL is provided, it defaults to `https://example.com`.
 You can also import `open_url` or `create_lite_driver` into your own scripts:
 
 ```python
-from lite_browser import open_url
+from p import open_url
 
 result = open_url("https://news.ycombinator.com", headless=True, disable_images=True)
 print(result["title"])
