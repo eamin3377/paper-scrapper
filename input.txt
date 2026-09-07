@@ -6,7 +6,7 @@
     "resultIndex": 0,
     "type": "ARTICLE",
     "title": "From dry eye to depression: a machine learning-based framework for predicting adolescent mental health",
-    "link": "https://www.frontiersin.org/journals/medicine/articles/10.3389/fmed.2025.1680180/full",
+    "link": "https://www.cell.com/heliyon/fulltext/S2405-8440(24)11617-9",
     "documentLink": "https://link.springer.com/content/pdf/10.1186/s12911-025-03246-7.pdf",
     "documentType": "PDF",
     "fullAttribution": "…, X Liu, K Cao, L Ren, Y Chang, Z Ma, L Tian… - BMC Medical Informatics …, 2025 - Springer",

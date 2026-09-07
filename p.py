@@ -3,52 +3,103 @@ import os
 import json
 import time
 import re
+import random
 from urllib.parse import urlparse
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
-from webdriver_manager.chrome import ChromeDriverManager
+
+try:
+    import undetected_chromedriver as uc
+    HAS_UC = True
+except ImportError:
+    HAS_UC = False
+    from selenium import webdriver
+    from selenium.webdriver.chrome.options import Options
+    from selenium.webdriver.chrome.service import Service
+    from webdriver_manager.chrome import ChromeDriverManager
 
 # Ensure stdout handles UTF-8 encoding on Windows PowerShell / CMD
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
-def create_lite_driver(headless=False, disable_images=False):
+def create_lite_driver(headless=False, use_undetected=True):
     """
-    Configures and creates a Selenium Chrome WebDriver instance.
+    Configures and creates an Undetected Chrome WebDriver instance to prevent bot detection.
     """
-    options = Options()
+    if use_undetected and HAS_UC:
+        options = uc.ChromeOptions()
+        if headless:
+            options.add_argument("--headless=new")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
+        options.add_argument("--disable-popup-blocking")
+        options.add_argument("--window-size=1280,800")
+        
+        # Enable human-like user agent & options
+        driver = uc.Chrome(options=options, use_subprocess=True)
+        return driver
+    else:
+        # Standard Selenium fallback
+        from selenium import webdriver
+        from selenium.webdriver.chrome.options import Options
+        from selenium.webdriver.chrome.service import Service
+        from webdriver_manager.chrome import ChromeDriverManager
 
-    if headless:
-        options.add_argument("--headless=new")
+        options = Options()
+        if headless:
+            options.add_argument("--headless=new")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
+        options.add_argument("--disable-gpu")
+        options.add_argument("--disable-popup-blocking")
+        options.add_argument("--window-size=1280,800")
 
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--disable-extensions")
-    options.add_argument("--disable-infobars")
-    options.add_argument("--disable-notifications")
-    options.add_argument("--disable-popup-blocking")
-    
-    prefs = {
-        "profile.managed_default_content_settings.images": 2 if disable_images else 1,
-        "profile.default_content_setting_values.notifications": 2,
-    }
-    options.add_experimental_option("prefs", prefs)
+        service = Service(ChromeDriverManager().install())
+        driver = webdriver.Chrome(service=service, options=options)
+        return driver
 
-    options.page_load_strategy = 'eager'
-    options.add_argument("--window-size=1280,800")
+def check_and_wait_for_captcha(driver, timeout=45):
+    """
+    Detects Cloudflare / CAPTCHA challenge pages and waits for human interaction to complete it.
+    """
+    start_time = time.time()
+    captcha_detected = False
 
-    service = Service(ChromeDriverManager().install())
-    driver = webdriver.Chrome(service=service, options=options)
-    
-    return driver
+    while time.time() - start_time < timeout:
+        title = driver.title.lower()
+        page_source = driver.page_source.lower()
+
+        is_challenge = any(keyword in title or keyword in page_source for keyword in [
+            "just a moment", "security check", "cloudflare", "challenge-running", "verify you are human", "attention required"
+        ])
+
+        if is_challenge:
+            if not captcha_detected:
+                print("\n[!] 🚨 CAPTCHA / Cloudflare Verification Detected!")
+                print("[👉 Please click/complete the CAPTCHA in the open Chrome window. Waiting for human interaction...]")
+                captcha_detected = True
+            time.sleep(2)
+        else:
+            if captcha_detected:
+                print("[+] ✅ CAPTCHA passed successfully! Continuing scraping...\n")
+            break
+
+def human_scroll(driver):
+    """
+    Simulates gentle human-like scrolling on the page.
+    """
+    try:
+        total_height = int(driver.execute_script("return document.body.scrollHeight"))
+        for i in range(1, 4):
+            scroll_to = (total_height // 4) * i
+            driver.execute_script(f"window.scrollTo(0, {scroll_to});")
+            time.sleep(random.uniform(0.5, 1.2))
+        driver.execute_script("window.scrollTo(0, 0);")
+    except Exception:
+        pass
 
 def format_abstract_text(text):
     """
     Formats abstract text to ensure double spacing between section headings
-    (e.g., Background, Objective, Methods, Results, Conclusion, etc.)
     and removes unwanted registration lines.
     """
     if not text:
@@ -71,15 +122,12 @@ def extract_springer_data(driver):
     Extracts structured paper details from Springer Nature (link.springer.com).
     """
     data = {}
-    
-    # 1. Title
     try:
         title_elem = driver.find_element(By.CSS_SELECTOR, "h1.c-article-title, h1[data-test='article-title']")
         data["title"] = title_elem.text.strip()
     except Exception:
         data["title"] = driver.title
 
-    # 2. Authors
     try:
         author_elems = driver.find_elements(By.CSS_SELECTOR, "a[data-test='author-name']")
         authors = [a.text.strip() for a in author_elems if a.text.strip()]
@@ -87,14 +135,12 @@ def extract_springer_data(driver):
     except Exception:
         data["authors"] = []
 
-    # 3. Publication Date
     try:
         time_elem = driver.find_element(By.CSS_SELECTOR, "time[datetime]")
         data["published_date"] = time_elem.text.strip() or time_elem.get_attribute("datetime")
     except Exception:
         data["published_date"] = "N/A"
 
-    # 4. Abstract
     try:
         abs_elem = driver.find_element(By.CSS_SELECTOR, "#Abs1-section, #Abs1-content, div[id*='Abs']")
         data["abstract"] = format_abstract_text(abs_elem.text.strip())
@@ -108,15 +154,12 @@ def extract_frontiers_data(driver):
     Extracts structured paper details from Frontiers (frontiersin.org).
     """
     data = {}
-    
-    # 1. Title
     try:
         title_elem = driver.find_element(By.CSS_SELECTOR, "h1.ArticleDetailsV4__main__title, h1")
         data["title"] = title_elem.text.strip()
     except Exception:
         data["title"] = driver.title
 
-    # 2. Authors
     try:
         author_names = []
         imgs = driver.find_elements(By.CSS_SELECTOR, "a.PeopleListItem img.Avatar__img")
@@ -137,7 +180,6 @@ def extract_frontiers_data(driver):
     except Exception:
         data["authors"] = []
 
-    # 3. Publication Date
     try:
         date_str = "N/A"
         try:
@@ -154,7 +196,6 @@ def extract_frontiers_data(driver):
     except Exception:
         data["published_date"] = "N/A"
 
-    # 4. Abstract
     try:
         abs_elem = driver.find_element(By.CSS_SELECTOR, "div#h1, div[id='h1']")
         paragraphs = abs_elem.find_elements(By.CSS_SELECTOR, "p, h2, h3")
@@ -181,22 +222,15 @@ def extract_frontiers_data(driver):
 
 def extract_cell_data(driver):
     """
-    Extracts structured paper details from Cell Press (cell.com).
-    - Title: h1[property='name']
-    - Authors: div.contributors -> span[property='author'] -> givenName + familyName
-    - Publication Date: span.meta-panel__onlineDate / meta[name='citation_online_date']
-    - Abstract: section#author-abstract / section[property='abstract']
+    Extracts structured paper details from Cell Press / Heliyon (cell.com).
     """
     data = {}
-    
-    # 1. Title
     try:
         title_elem = driver.find_element(By.CSS_SELECTOR, "h1[property='name'], h1.article-header__title, h1")
         data["title"] = title_elem.text.strip()
     except Exception:
         data["title"] = driver.title
 
-    # 2. Authors
     try:
         author_names = []
         author_elems = driver.find_elements(By.CSS_SELECTOR, "div.contributors span[property='author']")
@@ -210,7 +244,6 @@ def extract_cell_data(driver):
             except Exception:
                 pass
         
-        # Fallback to link texts
         if not author_names:
             links = driver.find_elements(By.CSS_SELECTOR, "div.contributors a[data-db-target-for]")
             for a in links:
@@ -222,7 +255,6 @@ def extract_cell_data(driver):
     except Exception:
         data["authors"] = []
 
-    # 3. Publication Date
     try:
         date_str = "N/A"
         try:
@@ -235,9 +267,8 @@ def extract_cell_data(driver):
     except Exception:
         data["published_date"] = "N/A"
 
-    # 4. Abstract
     try:
-        abs_elem = driver.find_element(By.CSS_SELECTOR, "section#author-abstract, section[property='abstract'], div.article-tools__abstract")
+        abs_elem = driver.find_element(By.CSS_SELECTOR, "section#author-abstract, section[property='abstract'], div.article-tools__abstract, div.abstract")
         sections = abs_elem.find_elements(By.CSS_SELECTOR, "section, div[id*='abssec'], p")
         if sections:
             lines = [sec.text.strip() for sec in sections if sec.text.strip()]
@@ -310,7 +341,7 @@ def load_links_from_json(json_path):
 
 def process_links(link_items, headless=False, disable_images=False, wait_time=5, max_count=None):
     """
-    Opens extracted links sequentially and outputs detailed progress and scraped information to terminal.
+    Opens extracted links sequentially using Undetected Browser & Human CAPTCHA handling.
     """
     if not link_items:
         print("[!] No links to process.")
@@ -321,11 +352,11 @@ def process_links(link_items, headless=False, disable_images=False, wait_time=5,
         link_items = link_items[:max_count]
 
     print(f"\n==================================================================")
-    print(f"[*] STARTING BROWSER SCRAPPER (Target Links: {len(link_items)} / Total: {total})")
-    print(f"[*] Mode: {'Headless (Silent)' if headless else 'Visible Window (GUI)'}")
+    print(f"[*] STARTING UNDETECTED BROWSER SCRAPPER (Links: {len(link_items)} / Total: {total})")
+    print(f"[*] Mode: {'Headless (Silent)' if headless else 'Visible Window (GUI - Human CAPTCHA Ready)'}")
     print(f"==================================================================\n")
 
-    driver = create_lite_driver(headless=headless, disable_images=disable_images)
+    driver = create_lite_driver(headless=headless, use_undetected=True)
 
     results = []
     try:
@@ -339,9 +370,16 @@ def process_links(link_items, headless=False, disable_images=False, wait_time=5,
             print(f"------------------------------------------------------------------")
             
             try:
-                print(f"[*] Navigating to URL...")
+                print(f"[*] Navigating to URL with Undetected Browser...")
                 start_time = time.time()
                 driver.get(url)
+                
+                # Check for Cloudflare / CAPTCHA and wait for human to click if present
+                check_and_wait_for_captcha(driver)
+                
+                # Simulate human interaction (scroll)
+                human_scroll(driver)
+
                 elapsed = time.time() - start_time
                 print(f"[+] Loaded in {elapsed:.2f} seconds!")
 
@@ -379,7 +417,6 @@ def process_links(link_items, headless=False, disable_images=False, wait_time=5,
                     print(f"\n📖 Abstract (Formatted Plain Text):\n\n{scraped_data.get('abstract')}\n")
 
                 else:
-                    # General Fallback Extractor
                     print(f"[+] Page Title : {driver.title}")
                     print(f"[+] Final URL  : {driver.current_url}")
 
@@ -404,7 +441,10 @@ def process_links(link_items, headless=False, disable_images=False, wait_time=5,
         print(f"\n==================================================================")
         print(f"[*] SCRAPING COMPLETED | Closing Browser Session")
         print(f"==================================================================\n")
-        driver.quit()
+        try:
+            driver.quit()
+        except Exception:
+            pass
 
     return results
 
