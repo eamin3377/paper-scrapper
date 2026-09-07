@@ -129,13 +129,17 @@ def wait_for_human_page_load(driver, wait_seconds=8):
 
 def format_abstract_text(text):
     """
-    Formats abstract text to ensure double spacing between section headings
-    and removes unwanted registration lines.
+    Formats abstract text cleanly:
+    - Excludes trailing Keywords, Graphical Abstracts, and Registration metadata lines.
+    - Adds double spacing before section headings (Background:, Objective:, Methods:, Results:, Conclusions:).
     """
     if not text:
         return "N/A"
     
-    # 1. Remove registration lines
+    # 1. Strip out Keywords / Graphical Abstract / Registration sections
+    text = re.sub(r'(?is)\bKeywords?:.*$', '', text)
+    text = re.sub(r'(?is)\bKey\s+words?:.*$', '', text)
+    text = re.sub(r'(?is)\bGraphical\s+Abstract.*$', '', text)
     text = re.sub(r'(?i)\bSystematic review registration:.*$', '', text, flags=re.MULTILINE)
     text = re.sub(r'(?i)\b(?:Trial|PROSPERO|Clinical trial)\s+registration:.*$', '', text, flags=re.MULTILINE)
     
@@ -317,7 +321,7 @@ def extract_mdpi_data(driver):
     - Title: h1.title / h1[itemprop='name']
     - Authors: div.art-authors -> div.profile-card-drop
     - Publication Date: span (starts with "Published:") or meta citation_publication_date
-    - Abstract: section.art-abstract / section.html-abstract / #html-abstract / div.html-p / div.art-abstract
+    - Abstract: div.html-p / section.html-abstract / #html-abstract / section.art-abstract / div.art-abstract
     """
     data = {}
     
@@ -337,7 +341,6 @@ def extract_mdpi_data(driver):
             if name and name not in author_names:
                 author_names.append(name)
                 
-        # Fallback if profile-card-drop is nested
         if not author_names:
             links = driver.find_elements(By.CSS_SELECTOR, "div.art-authors span.inlineblock")
             for l in links:
@@ -369,9 +372,9 @@ def extract_mdpi_data(driver):
     except Exception:
         data["published_date"] = "N/A"
 
-    # 4. Abstract (Supports section.art-abstract, section.html-abstract, #html-abstract, div.html-p, div.art-abstract)
+    # 4. Abstract (Targets div.html-p or section.html-abstract directly to extract pure abstract paragraph)
     try:
-        abs_elem = driver.find_element(By.CSS_SELECTOR, "section.html-abstract, #html-abstract, div.html-p, section.art-abstract, div.art-abstract, div.abstract_div")
+        abs_elem = driver.find_element(By.CSS_SELECTOR, "div.html-p, section.html-abstract, #html-abstract, section.art-abstract, div.art-abstract, div.abstract_div")
         data["abstract"] = format_abstract_text(abs_elem.text.strip())
     except Exception:
         data["abstract"] = "N/A"
