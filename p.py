@@ -121,11 +121,64 @@ def wait_for_captcha_and_content(driver, selectors, timeout=15):
         time.sleep(0.4)
     return False
 
-def humanoid_mouse_and_scroll(driver):
+def click_cloudflare_checkbox_humanoid(driver):
     """
-    Simulates gentle human-like mouse movements and natural scrolling for Cell.com.
+    Looks for Cloudflare Turnstile / challenge iframe and performs a natural humanoid mouse move and click on the checkbox.
     """
     try:
+        title = driver.title.lower()
+        if "are you a robot" not in title and "just a moment" not in title and "cloudflare" not in title:
+            return False
+
+        print("[*] 🚨 Cloudflare CAPTCHA Verification Page Detected!")
+        
+        # Search all visible iframes on page (Cloudflare Turnstile is inside an iframe)
+        iframes = driver.find_elements(By.TAG_NAME, "iframe")
+        for iframe in iframes:
+            try:
+                driver.switch_to.frame(iframe)
+                # Look for checkbox element inside Turnstile iframe
+                checkboxes = driver.find_elements(By.CSS_SELECTOR, "input[type='checkbox'], .ctp-checkbox-label, #challenge-stage, .mark")
+                if checkboxes:
+                    cb = checkboxes[0]
+                    print("[*] 🖱️ Found Cloudflare checkbox! Performing humanoid click...")
+                    actions = ActionChains(driver)
+                    actions.move_to_element(cb).pause(random.uniform(0.3, 0.7)).click().perform()
+                    driver.switch_to.default_content()
+                    time.sleep(2)
+                    return True
+                driver.switch_to.default_content()
+            except Exception:
+                try:
+                    driver.switch_to.default_content()
+                except Exception:
+                    pass
+
+        # Fallback: try clicking anywhere near Turnstile container in main document
+        try:
+            cb_main = driver.find_element(By.CSS_SELECTOR, "div.cf-turnstile, #challenge-stage, .ctp-checkbox-container")
+            if cb_main:
+                print("[*] 🖱️ Performing humanoid click on Cloudflare container...")
+                actions = ActionChains(driver)
+                actions.move_to_element(cb_main).pause(random.uniform(0.3, 0.6)).click().perform()
+                time.sleep(2)
+                return True
+        except Exception:
+            pass
+
+    except Exception as e:
+        try:
+            driver.switch_to.default_content()
+        except Exception:
+            pass
+    return False
+
+def humanoid_mouse_and_scroll(driver):
+    """
+    Simulates gentle human-like mouse movements and natural scrolling for Cell.com, Wiley & ScienceDirect.
+    """
+    try:
+        click_cloudflare_checkbox_humanoid(driver)
         actions = ActionChains(driver)
         actions.move_by_offset(random.randint(10, 50), random.randint(10, 50)).perform()
         time.sleep(random.uniform(0.5, 1.2))
@@ -853,7 +906,9 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
                 current_driver.get(url)
                 
                 if needs_captcha_humanoid:
-                    # Poll immediately for target title/abstract elements across all CAPTCHA protected domains (Cell.com, Wiley, ScienceDirect, etc.)
+                    time.sleep(1.5)
+                    click_cloudflare_checkbox_humanoid(current_driver)
+                    # Poll for target title/abstract elements across all CAPTCHA protected domains
                     target_selectors = [
                         "span.title-text", "h1.title-text", "div.author-group", "div#abs0001", "div#abss0001",
                         "h1.citation__title", "h1[property='name']", "h1.article-header__title", "h1.article-title",
