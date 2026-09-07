@@ -99,14 +99,19 @@ def create_humanoid_driver(headless=False):
 
     return create_lite_driver(headless=headless)
 
-def wait_for_captcha_and_content(driver, selectors, timeout=12):
+def wait_for_captcha_and_content(driver, selectors, timeout=15):
     """
     Polls the DOM rapidly. As soon as any target article element appears after CAPTCHA,
-    returns immediately without waiting for full page asset loads (images, ads, tracker scripts).
+    and page title is no longer 'Are you a robot?', returns True immediately.
     """
     start_time = time.time()
     while time.time() - start_time < timeout:
         try:
+            title = driver.title.lower()
+            if "are you a robot" in title or "just a moment" in title or "cloudflare" in title:
+                time.sleep(0.5)
+                continue
+
             for selector in selectors:
                 elems = driver.find_elements(By.CSS_SELECTOR, selector)
                 if elems and any(e.text.strip() for e in elems):
@@ -172,6 +177,92 @@ def clean_title_text(text):
         return ""
     cleaned = re.sub(r'^(?:first_page|settings|Order\s+Article\s+Reprints|Open\s+AccessReview|Open\s+Access|Review|Article|Communication|Editorial)\s*', '', text, flags=re.IGNORECASE).strip()
     return cleaned
+
+def extract_sciencedirect_data(driver):
+    """
+    Extracts structured paper details from ScienceDirect (sciencedirect.com).
+    - Title: span.title-text, h1.title-text, h1
+    - Authors: div.author-group span.given-name + span.surname (e.g. Anjana Patney, Ravindra Patel)
+    - Publication Date: div.text-xs (regex match 4-digit year like 2025) / meta citation_publication_date
+    - Abstract: div.abstract#abs0001, div#abss0001
+    """
+    data = {}
+    
+    # 1. Title
+    try:
+        title_elem = driver.find_element(By.CSS_SELECTOR, "span.title-text, h1.title-text, h1[class*='title'], h1")
+        data["title"] = title_elem.text.strip()
+    except Exception:
+        data["title"] = driver.title
+
+    # 2. Authors
+    try:
+        author_names = []
+        author_buttons = driver.find_elements(By.CSS_SELECTOR, "div.author-group button, div#author-group button")
+        for btn in author_buttons:
+            try:
+                given = btn.find_element(By.CSS_SELECTOR, "span.given-name").text.strip()
+                surname = btn.find_element(By.CSS_SELECTOR, "span.surname").text.strip()
+                full_name = f"{given} {surname}".strip()
+                if full_name and full_name not in author_names:
+                    author_names.append(full_name)
+            except Exception:
+                pass
+
+        if not author_names:
+            spans = driver.find_elements(By.CSS_SELECTOR, "span.react-xocs-alternative-link")
+            for s in spans:
+                raw_name = driver.execute_script("return arguments[0].innerText || arguments[0].textContent;", s)
+                clean_name = raw_name.strip() if raw_name else ""
+                if clean_name and clean_name not in author_names:
+                    author_names.append(clean_name)
+
+        data["authors"] = author_names
+    except Exception:
+        data["authors"] = []
+
+    # 3. Publication Date / Year
+    try:
+        date_str = "N/A"
+        try:
+            vol_div = driver.find_element(By.CSS_SELECTOR, "div.text-xs, div.publication-volume")
+            text = vol_div.text
+            match = re.search(r'\b(19\d\d|20\d\d)\b', text)
+            if match:
+                date_str = match.group(1)
+            else:
+                date_str = text.strip()
+        except Exception:
+            pass
+
+        if date_str == "N/A":
+            meta_date = driver.find_element(By.CSS_SELECTOR, "meta[name='citation_publication_date'], meta[name='citation_year']")
+            date_str = meta_date.get_attribute("content")
+
+        data["published_date"] = date_str
+    except Exception:
+        data["published_date"] = "N/A"
+
+    # 4. Abstract
+    try:
+        raw_text = ""
+        try:
+            abs_elem = driver.find_element(By.CSS_SELECTOR, "div#abss0001, div.abstract#abs0001, div.abstract")
+            raw_text = abs_elem.text.strip()
+        except Exception:
+            abs_elem = driver.find_element(By.CSS_SELECTOR, "#abs0001, div.AuthorAbstract")
+            raw_text = abs_elem.text.strip()
+
+        if "Abstract" in raw_text:
+            raw_text = raw_text[raw_text.find("Abstract"):]
+        else:
+            raw_text = "Abstract\n\n" + raw_text
+
+        data["abstract"] = format_abstract_text(raw_text)
+    except Exception:
+        data["abstract"] = "N/A"
+
+    return data
 
 def extract_peerj_data(driver):
     """
@@ -733,7 +824,7 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
         for item in link_items:
             url = item["link"]
             parsed_domain = urlparse(url).netloc.lower()
-            needs_captcha_humanoid = ("cell.com" in parsed_domain) or ("wiley.com" in parsed_domain)
+            needs_captcha_humanoid = ("cell.com" in parsed_domain) or ("wiley.com" in parsed_domain) or ("sciencedirect.com" in parsed_domain)
 
             required_type = "captcha_humanoid" if needs_captcha_humanoid else "lite"
             if current_driver_type != required_type:
@@ -744,7 +835,7 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
                         pass
                 
                 if required_type == "captcha_humanoid":
-                    print("[*] 🛡️ Initializing Undetected Humanoid Browser (Cell / Wiley CAPTCHA Mode)...")
+                    print("[*] 🛡️ Initializing Undetected Humanoid Browser (Cell / Wiley / ScienceDirect CAPTCHA Mode)...")
                     current_driver = create_humanoid_driver(headless=headless)
                 else:
                     print("[*] ⚡ Initializing Fast Lite Browser (Springer/Frontiers/MDPI/Nature Mode)...")
@@ -762,16 +853,17 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
                 current_driver.get(url)
                 
                 if needs_captcha_humanoid:
-                    # Poll immediately for target title/abstract elements across all CAPTCHA protected domains (Cell.com, Wiley, etc.)
+                    # Poll immediately for target title/abstract elements across all CAPTCHA protected domains (Cell.com, Wiley, ScienceDirect, etc.)
                     target_selectors = [
-                        "h1.citation__title", "h1[property='name']", "h1.article-header__title", "h1.article-title", "h1",
+                        "span.title-text", "h1.title-text", "div.author-group", "div#abs0001", "div#abss0001",
+                        "h1.citation__title", "h1[property='name']", "h1.article-header__title", "h1.article-title",
                         "section.article-section__abstract", "section#author-abstract", "div.article-tools__abstract",
                         "div.abstract", "#abstract", "div.abstract-group", "section[class*='abstract']"
                     ]
-                    found = wait_for_captcha_and_content(current_driver, target_selectors, timeout=5)
+                    found = wait_for_captcha_and_content(current_driver, target_selectors, timeout=8)
                     if not found:
                         humanoid_mouse_and_scroll(current_driver)
-                        wait_for_captcha_and_content(current_driver, target_selectors, timeout=3)
+                        wait_for_captcha_and_content(current_driver, target_selectors, timeout=5)
                 else:
                     time.sleep(0.3)
 
@@ -845,6 +937,16 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
                     scraped_data = extract_peerj_data(current_driver)
                     
                     print(f"\n--- [ PeerJ Extracted Data ] ---")
+                    print(f"📌 Title          : {scraped_data.get('title')}")
+                    print(f"👥 Author Names   : {', '.join(scraped_data.get('authors', []))}")
+                    print(f"📅 Published Date : {scraped_data.get('published_date')}")
+                    print(f"\n📖 Abstract (Formatted Plain Text):\n\n{scraped_data.get('abstract')}\n")
+
+                elif "sciencedirect.com" in parsed_domain:
+                    print(f"[*] ScienceDirect Domain Detected -> Extracting ScienceDirect Article Elements...")
+                    scraped_data = extract_sciencedirect_data(current_driver)
+                    
+                    print(f"\n--- [ ScienceDirect Extracted Data ] ---")
                     print(f"📌 Title          : {scraped_data.get('title')}")
                     print(f"👥 Author Names   : {', '.join(scraped_data.get('authors', []))}")
                     print(f"📅 Published Date : {scraped_data.get('published_date')}")
