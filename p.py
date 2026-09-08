@@ -2642,6 +2642,21 @@ def extract_asce_data(driver, item=None):
                         else:
                             clean_abs = "Abstract\n\n" + clean_abs
                         data["abstract"] = format_abstract_text(clean_abs)
+
+                    # 6. OpenAlex Abstract Fallback if Crossref does not have abstract
+                    current_abs = data.get("abstract", "").strip()
+                    if current_abs in ["N/A", "", "Abstract"] or len(current_abs) <= 15:
+                        try:
+                            oa_resp = requests.get(f"https://api.openalex.org/works/https://doi.org/{doi}", headers=headers, timeout=8)
+                            if oa_resp.status_code == 200:
+                                inv = oa_resp.json().get("abstract_inverted_index")
+                                if inv:
+                                    words = sorted([(idx, word) for word, indices in inv.items() for idx in indices])
+                                    oa_text = " ".join([w[1] for w in words]).strip()
+                                    if oa_text:
+                                        data["abstract"] = format_abstract_text(f"Abstract\n\n{oa_text}")
+                        except Exception:
+                            pass
         except Exception:
             pass
 
