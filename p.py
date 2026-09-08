@@ -114,41 +114,55 @@ def create_humanoid_driver(headless=False):
 
     return create_lite_driver(headless=headless)
 
-def wait_for_captcha_and_content(driver, selectors, timeout=30):
+def wait_for_captcha_and_content(driver, selectors, timeout=45):
     """
-    Polls the DOM rapidly. Detects Cloudflare Turnstile iframes and waits for user / auto-resolution.
-    As soon as any target article element appears, returns True immediately.
+    Waits naturally as a human browser. If a verification / Cloudflare page appears,
+    it gives the user plenty of time (with live countdown/prompt in console) to complete
+    the verification manually or allow Turnstile to resolve naturally.
+    As soon as verification clears and article content appears, it proceeds immediately.
     """
     start_time = time.time()
+    notified_user = False
+    last_print_time = 0
+
     while time.time() - start_time < timeout:
         try:
             title = driver.title.lower()
-            if "are you a robot" in title or "just a moment" in title or "cloudflare" in title or "attention required" in title:
-                # Try clicking Turnstile checkbox inside iframe if present
-                try:
-                    iframes = driver.find_elements(By.CSS_SELECTOR, "iframe[src*='cloudflare'], iframe[src*='turnstile'], iframe[title*='challenge']")
-                    for f in iframes:
-                        driver.switch_to.frame(f)
-                        box = driver.find_elements(By.CSS_SELECTOR, "input[type='checkbox'], #challenge-stage input, .ctp-checkbox-label")
-                        if box:
-                            box[0].click()
-                            time.sleep(1)
-                        driver.switch_to.default_content()
-                except Exception:
-                    try:
-                        driver.switch_to.default_content()
-                    except Exception:
-                        pass
+            is_verification = (
+                "are you a robot" in title or 
+                "just a moment" in title or 
+                "cloudflare" in title or 
+                "attention required" in title or
+                "security check" in title or
+                "verify you are human" in title or
+                "verifying" in title or
+                driver.find_elements(By.CSS_SELECTOR, "iframe[src*='challenges.cloudflare.com'], div#challenge-stage, div.cf-turnstile")
+            )
+
+            if is_verification:
+                curr_now = time.time()
+                remaining = int(timeout - (curr_now - start_time))
+                if not notified_user or (curr_now - last_print_time > 8):
+                    print(f"[*] ⏳ Security / Human Verification screen detected! Please complete the verification in the browser window if prompted (Waiting {remaining}s)...")
+                    notified_user = True
+                    last_print_time = curr_now
+
                 time.sleep(1.0)
                 continue
 
+            # If verification is no longer showing, check for target content
             for selector in selectors:
                 elems = driver.find_elements(By.CSS_SELECTOR, selector)
                 if elems and any(e.text.strip() for e in elems):
+                    if notified_user:
+                        print("[*] ✅ Verification passed and article content detected!")
                     return True
         except Exception:
             pass
         time.sleep(0.5)
+
+    if notified_user:
+        print("[!] Verification wait timed out. Proceeding to extract available DOM / Crossref metadata.")
     return False
 
 def humanoid_mouse_and_scroll(driver):
@@ -2354,10 +2368,10 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
                         "div.abstract", "#abstract", "div.abstract-group", "section[class*='abstract']",
                         "h1.title", "h1[class*='article-title']"
                     ]
-                    found = wait_for_captcha_and_content(current_driver, target_selectors, timeout=12)
+                    found = wait_for_captcha_and_content(current_driver, target_selectors, timeout=40)
                     if not found:
                         humanoid_mouse_and_scroll(current_driver)
-                        wait_for_captcha_and_content(current_driver, target_selectors, timeout=8)
+                        wait_for_captcha_and_content(current_driver, target_selectors, timeout=10)
                 else:
                     # For fast lite sites (Springer, MDPI, Frontiers, Nature, De Gruyter Brill), wait up to 6 seconds for title/body element
                     fast_selectors = [
