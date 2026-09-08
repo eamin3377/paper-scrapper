@@ -4112,8 +4112,12 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
             pub_year = data_dict.get("published_date") or data_dict.get("year") or "N/A" if data_dict else "N/A"
             pub_year = str(pub_year).strip()
 
-            abstract = data_dict.get("abstract") or "N/A" if data_dict else "N/A"
-            abstract = str(abstract).strip()
+            raw_abstract = data_dict.get("abstract") if data_dict else None
+            # If abstract is missing, empty, or N/A, save the link on that abstract section
+            if not raw_abstract or not str(raw_abstract).strip() or str(raw_abstract).strip().lower() in ["n/a", "none", "abstract"]:
+                abstract = url_target
+            else:
+                abstract = str(raw_abstract).strip()
 
             with open(csv_filename, mode="a", newline="", encoding="utf-8-sig") as f:
                 writer = csv.DictWriter(f, fieldnames=fieldnames)
