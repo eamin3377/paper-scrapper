@@ -1581,10 +1581,10 @@ def extract_aipp_data(driver, item=None):
     title_bad = data.get("title", "").strip().lower() in ["pubs.aip.org", "just a moment...", "", "superconductivity"]
     if not data.get("authors") or title_bad or data.get("published_date") == "N/A":
         try:
-            doc_link = item.get("document_link", "") if isinstance(item, dict) else ""
             item_link = item.get("link", "") if isinstance(item, dict) else ""
             cur_url = driver.current_url or ""
-            target_str = f"{doc_link} {item_link} {cur_url}"
+            doc_link = item.get("document_link", "") if isinstance(item, dict) else ""
+            target_str = f"{cur_url} {item_link} {doc_link}"
             doi = None
             doi_match = re.search(r'10\.\d{4,9}/[-._;()/:A-Za-z0-9]+', target_str)
             if doi_match:
@@ -1792,10 +1792,10 @@ def extract_cambridge_data(driver, item=None):
     ]
     if not data.get("authors") or title_bad or data.get("published_date") == "N/A" or data.get("abstract") in ["N/A", "", "Abstract"]:
         try:
-            doc_link = item.get("document_link", "") if isinstance(item, dict) else ""
             item_link = item.get("link", "") if isinstance(item, dict) else ""
             cur_url = driver.current_url or ""
-            target_str = f"{doc_link} {item_link} {cur_url}"
+            doc_link = item.get("document_link", "") if isinstance(item, dict) else ""
+            target_str = f"{cur_url} {item_link} {doc_link}"
             doi = None
             doi_match = re.search(r'10\.\d{4,9}/[-._;()/:A-Za-z0-9]+', target_str)
             if doi_match:
@@ -1981,10 +1981,10 @@ def extract_rsc_data(driver, item=None):
     ]
     if not data.get("authors") or title_bad or data.get("published_date") == "N/A" or data.get("abstract") in ["N/A", "", "Abstract"]:
         try:
-            doc_link = item.get("document_link", "") if isinstance(item, dict) else ""
             item_link = item.get("link", "") if isinstance(item, dict) else ""
             cur_url = driver.current_url or ""
-            target_str = f"{doc_link} {item_link} {cur_url}"
+            doc_link = item.get("document_link", "") if isinstance(item, dict) else ""
+            target_str = f"{cur_url} {item_link} {doc_link}"
             doi = None
             doi_match = re.search(r'10\.\d{4,9}/[-._;()/:A-Za-z0-9]+', target_str)
             if doi_match:
@@ -2178,10 +2178,10 @@ def extract_oaepublish_data(driver, item=None):
     ]
     if not data.get("authors") or title_bad or data.get("published_date") == "N/A" or data.get("abstract") in ["N/A", "", "Abstract"]:
         try:
-            doc_link = item.get("document_link", "") if isinstance(item, dict) else ""
             item_link = item.get("link", "") if isinstance(item, dict) else ""
             cur_url = driver.current_url or ""
-            target_str = f"{doc_link} {item_link} {cur_url}"
+            doc_link = item.get("document_link", "") if isinstance(item, dict) else ""
+            target_str = f"{cur_url} {item_link} {doc_link}"
             doi = None
             doi_match = re.search(r'10\.\d{4,9}/[-._;()/:A-Za-z0-9]+', target_str)
             if doi_match:
@@ -2372,10 +2372,10 @@ def extract_emerald_data(driver, item=None):
     ]
     if not data.get("authors") or title_bad or data.get("published_date") == "N/A" or data.get("abstract") in ["N/A", "", "Abstract"]:
         try:
-            doc_link = item.get("document_link", "") if isinstance(item, dict) else ""
             item_link = item.get("link", "") if isinstance(item, dict) else ""
             cur_url = driver.current_url or ""
-            target_str = f"{doc_link} {item_link} {cur_url}"
+            doc_link = item.get("document_link", "") if isinstance(item, dict) else ""
+            target_str = f"{cur_url} {item_link} {doc_link}"
             doi = None
             art_match = re.search(r'/article/doi/(10\.\d{4,9}/[^/?#]+)(?:/\d+)?', target_str)
             if art_match:
@@ -2582,10 +2582,10 @@ def extract_asce_data(driver, item=None):
     ]
     if not data.get("authors") or title_bad or data.get("published_date") == "N/A" or data.get("abstract") in ["N/A", "", "Abstract"]:
         try:
-            doc_link = item.get("document_link", "") if isinstance(item, dict) else ""
             item_link = item.get("link", "") if isinstance(item, dict) else ""
             cur_url = driver.current_url or ""
-            target_str = f"{doc_link} {item_link} {cur_url}"
+            doc_link = item.get("document_link", "") if isinstance(item, dict) else ""
+            target_str = f"{cur_url} {item_link} {doc_link}"
             doi = None
             art_match = re.search(r'/doi/(?:abs/|full/)?(10\.\d{4,9}/[^/?#]+)', target_str)
             if art_match:
@@ -2817,10 +2817,10 @@ def extract_medrxiv_data(driver, item=None):
     
     if not data.get("authors") or title_bad or data.get("published_date") == "N/A" or data.get("abstract") in ["N/A", "", "Abstract"]:
         try:
-            doc_link = item.get("document_link", "") if isinstance(item, dict) else ""
             item_link = item.get("link", "") if isinstance(item, dict) else ""
             cur_url = driver.current_url or ""
-            target_str = f"{doc_link} {item_link} {cur_url}"
+            doc_link = item.get("document_link", "") if isinstance(item, dict) else ""
+            target_str = f"{cur_url} {item_link} {doc_link}"
             doi = None
             doi_match = re.search(r'10\.\d{4,9}/[-._;()/:A-Za-z0-9]+', target_str)
             if doi_match:
@@ -3034,10 +3034,10 @@ def extract_dergipark_data(driver, item=None):
     
     if not data.get("authors") or title_bad or data.get("published_date") == "N/A" or data.get("abstract") in ["N/A", "", "Abstract"]:
         try:
-            doc_link = item.get("document_link", "") if isinstance(item, dict) else ""
             item_link = item.get("link", "") if isinstance(item, dict) else ""
             cur_url = driver.current_url or ""
-            target_str = f"{doc_link} {item_link} {cur_url}"
+            doc_link = item.get("document_link", "") if isinstance(item, dict) else ""
+            target_str = f"{cur_url} {item_link} {doc_link}"
             doi = None
             doi_match = re.search(r'10\.\d{4,9}/[-._;()/:A-Za-z0-9]+', target_str)
             if doi_match:
@@ -3257,14 +3257,14 @@ def extract_ojs_data(driver, item=None):
     cur_title = data.get("title", "").strip().lower()
     title_bad = cur_title in [
         "twist", "twistjournal", "twistjournal.net", "just a moment...", "are you a robot", "attention required", ""
-    ] or cur_title.startswith("www.")
+    ] or cur_title.startswith("www.") or "checking your browser" in cur_title or "cloudflare" in cur_title
     
     if not data.get("authors") or title_bad or data.get("published_date") == "N/A" or data.get("abstract") in ["N/A", "", "Abstract"]:
         try:
-            doc_link = item.get("document_link", "") if isinstance(item, dict) else ""
             item_link = item.get("link", "") if isinstance(item, dict) else ""
             cur_url = driver.current_url or ""
-            target_str = f"{doc_link} {item_link} {cur_url}"
+            doc_link = item.get("document_link", "") if isinstance(item, dict) else ""
+            target_str = f"{cur_url} {item_link} {doc_link}"
             doi = None
             doi_match = re.search(r'10\.\d{4,9}/[-._;()/:A-Za-z0-9]+', target_str)
             if doi_match:
@@ -3337,7 +3337,7 @@ def extract_ojs_data(driver, item=None):
 
     # Safety fallback: if title is still the domain, use item title if provided
     cur_title_final = data.get("title", "").strip().lower()
-    if cur_title_final in ["twist", "twistjournal", "twistjournal.net", "just a moment...", ""] or cur_title_final.startswith("www."):
+    if cur_title_final in ["twist", "twistjournal", "twistjournal.net", "just a moment...", ""] or cur_title_final.startswith("www.") or "checking your browser" in cur_title_final or "cloudflare" in cur_title_final:
         if isinstance(item, dict) and item.get("title") and item.get("title") not in ["No Title", "Direct URL"]:
             data["title"] = item.get("title")
 
@@ -3493,10 +3493,10 @@ def extract_biofuel_data(driver, item=None):
     
     if not data.get("authors") or title_bad or data.get("published_date") == "N/A" or data.get("abstract") in ["N/A", "", "Abstract"]:
         try:
-            doc_link = item.get("document_link", "") if isinstance(item, dict) else ""
             item_link = item.get("link", "") if isinstance(item, dict) else ""
             cur_url = driver.current_url or ""
-            target_str = f"{doc_link} {item_link} {cur_url}"
+            doc_link = item.get("document_link", "") if isinstance(item, dict) else ""
+            target_str = f"{cur_url} {item_link} {doc_link}"
             doi = None
             doi_match = re.search(r'10\.\d{4,9}/[-._;()/:A-Za-z0-9]+', target_str)
             if doi_match:
@@ -3659,7 +3659,7 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
         for item in link_items:
             url = item["link"]
             parsed_domain = urlparse(url).netloc.lower()
-            needs_captcha_humanoid = ("cell.com" in parsed_domain) or ("wiley.com" in parsed_domain) or ("sciencedirect.com" in parsed_domain) or ("tandfonline.com" in parsed_domain) or ("benthamdirect.com" in parsed_domain) or ("sagepub.com" in parsed_domain) or ("aip.org" in parsed_domain) or ("cambridge.org" in parsed_domain) or ("rsc.org" in parsed_domain) or ("emerald.com" in parsed_domain) or ("ascelibrary.org" in parsed_domain) or ("authorea.com" in parsed_domain) or ("medrxiv.org" in parsed_domain) or ("biorxiv.org" in parsed_domain)
+            needs_captcha_humanoid = ("cell.com" in parsed_domain) or ("wiley.com" in parsed_domain) or ("sciencedirect.com" in parsed_domain) or ("tandfonline.com" in parsed_domain) or ("benthamdirect.com" in parsed_domain) or ("sagepub.com" in parsed_domain) or ("aip.org" in parsed_domain) or ("cambridge.org" in parsed_domain) or ("rsc.org" in parsed_domain) or ("emerald.com" in parsed_domain) or ("ascelibrary.org" in parsed_domain) or ("authorea.com" in parsed_domain) or ("medrxiv.org" in parsed_domain) or ("biorxiv.org" in parsed_domain) or ("twistjournal.net" in parsed_domain)
 
             required_type = "captcha_humanoid" if needs_captcha_humanoid else "lite"
             if current_driver_type != required_type:
