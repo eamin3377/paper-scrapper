@@ -1127,6 +1127,108 @@ def extract_plos_data(driver):
 
     return data
 
+def extract_bentham_data(driver):
+    """
+    Extracts structured paper details from Bentham Science / Bentham Direct (benthamdirect.com).
+    - Title: h1.h2, h1[class*='h2'], h1
+    - Authors: div.authors, span.authors, meta citation_author
+    - Publication Year / Date: div.pub-date, span.pub-date, meta citation_publication_date
+    - Abstract: div.abstract p, p (containing Purpose/Methods/Results/Conclusion)
+    """
+    data = {}
+
+    # 1. Title
+    try:
+        title_elem = driver.find_element(By.CSS_SELECTOR, "h1.h2, h1[class*='h2'], h1")
+        data["title"] = clean_title_text(title_elem.text.strip())
+    except Exception:
+        data["title"] = driver.title
+
+    # 2. Authors
+    try:
+        author_names = []
+        author_elements = driver.find_elements(
+            By.CSS_SELECTOR,
+            "div.authors a, span.author-name, a[class*='author'], div.author-list span, div.authors"
+        )
+        for elem in author_elements:
+            name = elem.text.strip()
+            if name and name not in author_names and len(name) > 2 and "\n" not in name:
+                author_names.append(name)
+
+        if not author_names:
+            meta_authors = driver.find_elements(By.CSS_SELECTOR, "meta[name='citation_author'], meta[name='dc.contributor']")
+            for ma in meta_authors:
+                content = ma.get_attribute("content")
+                if content and content.strip() not in author_names:
+                    author_names.append(content.strip())
+
+        data["authors"] = author_names
+    except Exception:
+        data["authors"] = []
+
+    # 3. Publication Year / Date
+    try:
+        date_str = "N/A"
+        try:
+            meta_date = driver.find_element(
+                By.CSS_SELECTOR,
+                "meta[name='citation_publication_date'], meta[name='citation_date'], meta[name='dc.date']"
+            )
+            val = meta_date.get_attribute("content")
+            if val:
+                match = re.search(r'\b(19\d\d|20\d\d)\b', val)
+                date_str = match.group(1) if match else val.strip()
+        except Exception:
+            pass
+
+        if date_str == "N/A":
+            date_elems = driver.find_elements(By.CSS_SELECTOR, "div.pub-date, span.pub-date, div[class*='date'], div[class*='publish']")
+            for elem in date_elems:
+                text = elem.text
+                match = re.search(r'\b(19\d\d|20\d\d)\b', text)
+                if match:
+                    date_str = match.group(1)
+                    break
+
+        data["published_date"] = date_str
+    except Exception:
+        data["published_date"] = "N/A"
+
+    # 4. Abstract
+    try:
+        raw_text = ""
+        try:
+            # Look for paragraph or div containing abstract content
+            abs_elems = driver.find_elements(By.CSS_SELECTOR, "div.abstract p, div[class*='abstract'] p, div.abstract, section[class*='abstract']")
+            for elem in abs_elems:
+                txt = elem.text.strip()
+                if any(k in txt for k in ["Purpose:", "Methods:", "Results:", "Conclusion:", "Abstract"]):
+                    raw_text = txt
+                    break
+            if not raw_text and abs_elems:
+                raw_text = abs_elems[0].text.strip()
+        except Exception:
+            pass
+
+        if not raw_text:
+            try:
+                meta_abs = driver.find_element(By.CSS_SELECTOR, "meta[name='citation_abstract'], meta[name='description'], meta[property='og:description']")
+                raw_text = meta_abs.get_attribute("content") or ""
+            except Exception:
+                pass
+
+        if "Abstract" in raw_text:
+            raw_text = raw_text[raw_text.find("Abstract"):]
+        else:
+            raw_text = "Abstract\n\n" + raw_text
+
+        data["abstract"] = format_abstract_text(raw_text)
+    except Exception:
+        data["abstract"] = "N/A"
+
+    return data
+
 def load_links_from_json(json_path):
     """
     Reads a JSON file and extracts paper metadata.
@@ -1211,7 +1313,7 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
         for item in link_items:
             url = item["link"]
             parsed_domain = urlparse(url).netloc.lower()
-            needs_captcha_humanoid = ("cell.com" in parsed_domain) or ("wiley.com" in parsed_domain) or ("sciencedirect.com" in parsed_domain) or ("tandfonline.com" in parsed_domain)
+            needs_captcha_humanoid = ("cell.com" in parsed_domain) or ("wiley.com" in parsed_domain) or ("sciencedirect.com" in parsed_domain) or ("tandfonline.com" in parsed_domain) or ("benthamdirect.com" in parsed_domain)
 
             required_type = "captcha_humanoid" if needs_captcha_humanoid else "lite"
             if current_driver_type != required_type:
@@ -1242,6 +1344,7 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
                 if needs_captcha_humanoid:
                     # Poll for target title/abstract elements after manual user resolution / Cloudflare auto-check
                     target_selectors = [
+                        "h1.h2", "h1[class*='h2']",
                         "span.NLM_article-title", "div.hlFld-Abstract", "div#abstractId1",
                         "span.title-text", "h1.title-text", "div.author-group", "div#abs0001", "div#abss0001",
                         "h1.citation__title", "h1[property='name']", "h1.article-header__title", "h1.article-title",
@@ -1388,6 +1491,16 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
                     scraped_data = extract_plos_data(current_driver)
 
                     print(f"\n--- [ PLOS Extracted Data ] ---")
+                    print(f"📌 Title          : {scraped_data.get('title')}")
+                    print(f"👥 Author Names   : {', '.join(scraped_data.get('authors', []))}")
+                    print(f"📅 Published Date : {scraped_data.get('published_date')}")
+                    print(f"\n📖 Abstract (Formatted Plain Text):\n\n{scraped_data.get('abstract')}\n")
+
+                elif "benthamdirect.com" in parsed_domain or "benthamscience.com" in parsed_domain:
+                    print(f"[*] Bentham Science Domain Detected -> Extracting Bentham Article Elements...")
+                    scraped_data = extract_bentham_data(current_driver)
+
+                    print(f"\n--- [ Bentham Science Extracted Data ] ---")
                     print(f"📌 Title          : {scraped_data.get('title')}")
                     print(f"👥 Author Names   : {', '.join(scraped_data.get('authors', []))}")
                     print(f"📅 Published Date : {scraped_data.get('published_date')}")
