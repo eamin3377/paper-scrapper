@@ -1229,6 +1229,127 @@ def extract_bentham_data(driver):
 
     return data
 
+def extract_sage_data(driver):
+    """
+    Extracts structured paper details from SAGE Journals (journals.sagepub.com / sagepub.com).
+    - Title: h1[property='name'], h1.article-header__title, h1
+    - Authors: div.contributors span[property='author'], span[property='author'], meta citation_author
+    - Publication Year / Date: div.meta-panel__onlineDate, div[class*='onlineDate'], meta citation_publication_date
+    - Abstract: div.abstractSection, div[class*='abstractSection'], div.abstract, section[class*='abstract']
+    """
+    data = {}
+
+    # 1. Title
+    try:
+        title_elem = driver.find_element(
+            By.CSS_SELECTOR,
+            "h1[property='name'], h1.article-header__title, h1.citation__title, h1"
+        )
+        data["title"] = clean_title_text(title_elem.text.strip())
+    except Exception:
+        data["title"] = driver.title
+
+    # 2. Authors
+    try:
+        author_names = []
+        # Target: div.contributors span[property='author'] or span[property='author']
+        author_elements = driver.find_elements(
+            By.CSS_SELECTOR,
+            "div.contributors span[property='author'], span[property='author'], div.contributors a[href*='#con']"
+        )
+        for elem in author_elements:
+            try:
+                # First try givenName + familyName
+                given = elem.find_elements(By.CSS_SELECTOR, "span[property='givenName']")
+                family = elem.find_elements(By.CSS_SELECTOR, "span[property='familyName']")
+                if given and family:
+                    name = f"{given[0].text.strip()} {family[0].text.strip()}".strip()
+                else:
+                    # Strip out email / orcid text if plain text
+                    raw = elem.text.strip()
+                    name = re.sub(r'https?://\S+|[\w\.-]+@[\w\.-]+', '', raw).strip().rstrip(',').strip()
+                if name and name not in author_names and len(name) > 2:
+                    author_names.append(name)
+            except Exception:
+                pass
+
+        if not author_names:
+            meta_authors = driver.find_elements(By.CSS_SELECTOR, "meta[name='citation_author'], meta[name='dc.Contributor']")
+            for ma in meta_authors:
+                content = ma.get_attribute("content")
+                if content and content.strip() not in author_names:
+                    author_names.append(content.strip())
+
+        data["authors"] = author_names
+    except Exception:
+        data["authors"] = []
+
+    # 3. Publication Year / Date
+    try:
+        date_str = "N/A"
+        try:
+            date_elem = driver.find_element(
+                By.CSS_SELECTOR,
+                "div.meta-panel__onlineDate, div[class*='onlineDate'], span.publicationContent__date"
+            )
+            text = date_elem.text.strip()
+            # E.g. 'First published online December 13, 2024' -> regex match 4 digit year
+            clean_date = re.sub(r'^(?:First published online\s*|Published\s*)', '', text, flags=re.IGNORECASE).strip()
+            match = re.search(r'\b(19\d\d|20\d\d)\b', clean_date)
+            date_str = match.group(1) if match else clean_date
+        except Exception:
+            pass
+
+        if date_str == "N/A":
+            try:
+                meta_date = driver.find_element(
+                    By.CSS_SELECTOR,
+                    "meta[name='citation_publication_date'], meta[name='citation_online_date'], meta[name='dc.Date']"
+                )
+                val = meta_date.get_attribute("content")
+                if val:
+                    match = re.search(r'\b(19\d\d|20\d\d)\b', val)
+                    date_str = match.group(1) if match else val.strip()
+            except Exception:
+                pass
+
+        data["published_date"] = date_str
+    except Exception:
+        data["published_date"] = "N/A"
+
+    # 4. Abstract
+    try:
+        raw_text = ""
+        try:
+            abs_elem = driver.find_element(
+                By.CSS_SELECTOR,
+                "div.abstractSection, div[class*='abstractSection'], div.abstract, section[class*='abstract']"
+            )
+            raw_text = abs_elem.text.strip()
+        except Exception:
+            pass
+
+        if not raw_text:
+            try:
+                meta_abs = driver.find_element(
+                    By.CSS_SELECTOR,
+                    "meta[name='citation_abstract'], meta[name='description'], meta[property='og:description']"
+                )
+                raw_text = meta_abs.get_attribute("content") or ""
+            except Exception:
+                pass
+
+        if "Abstract" in raw_text:
+            raw_text = raw_text[raw_text.find("Abstract"):]
+        else:
+            raw_text = "Abstract\n\n" + raw_text
+
+        data["abstract"] = format_abstract_text(raw_text)
+    except Exception:
+        data["abstract"] = "N/A"
+
+    return data
+
 def load_links_from_json(json_path):
     """
     Reads a JSON file and extracts paper metadata.
@@ -1313,7 +1434,7 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
         for item in link_items:
             url = item["link"]
             parsed_domain = urlparse(url).netloc.lower()
-            needs_captcha_humanoid = ("cell.com" in parsed_domain) or ("wiley.com" in parsed_domain) or ("sciencedirect.com" in parsed_domain) or ("tandfonline.com" in parsed_domain) or ("benthamdirect.com" in parsed_domain)
+            needs_captcha_humanoid = ("cell.com" in parsed_domain) or ("wiley.com" in parsed_domain) or ("sciencedirect.com" in parsed_domain) or ("tandfonline.com" in parsed_domain) or ("benthamdirect.com" in parsed_domain) or ("sagepub.com" in parsed_domain)
 
             required_type = "captcha_humanoid" if needs_captcha_humanoid else "lite"
             if current_driver_type != required_type:
@@ -1501,6 +1622,16 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
                     scraped_data = extract_bentham_data(current_driver)
 
                     print(f"\n--- [ Bentham Science Extracted Data ] ---")
+                    print(f"📌 Title          : {scraped_data.get('title')}")
+                    print(f"👥 Author Names   : {', '.join(scraped_data.get('authors', []))}")
+                    print(f"📅 Published Date : {scraped_data.get('published_date')}")
+                    print(f"\n📖 Abstract (Formatted Plain Text):\n\n{scraped_data.get('abstract')}\n")
+
+                elif "sagepub.com" in parsed_domain:
+                    print(f"[*] SAGE Journals Domain Detected -> Extracting SAGE Article Elements...")
+                    scraped_data = extract_sage_data(current_driver)
+
+                    print(f"\n--- [ SAGE Journals Extracted Data ] ---")
                     print(f"📌 Title          : {scraped_data.get('title')}")
                     print(f"👥 Author Names   : {', '.join(scraped_data.get('authors', []))}")
                     print(f"📅 Published Date : {scraped_data.get('published_date')}")
