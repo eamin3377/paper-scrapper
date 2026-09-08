@@ -93,14 +93,14 @@ def create_humanoid_driver(headless=False):
         options.add_argument("--disable-dev-shm-usage")
         options.add_argument("--disable-popup-blocking")
         options.add_argument("--start-maximized")
-        options.add_argument(f"user-agent={user_agent}")
+        options.add_argument("--disable-blink-features=AutomationControlled")
         options.add_argument("--lang=en-US,en")
         
-        # Use a persistent browser profile directory so Cloudflare clearance cookies are saved
+        # Use a persistent browser profile directory so human verification and cookies are remembered
         profile_dir = os.path.join(os.path.expanduser("~"), ".scrapper_chrome_profile")
         os.makedirs(profile_dir, exist_ok=True)
         options.add_argument(f"--user-data-dir={profile_dir}")
-        options.page_load_strategy = 'eager'
+        options.page_load_strategy = 'normal'
         
         try:
             driver = uc.Chrome(options=options, version_main=chrome_major_version, use_subprocess=True)
