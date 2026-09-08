@@ -1227,6 +1227,49 @@ def extract_bentham_data(driver):
     except Exception:
         data["abstract"] = "N/A"
 
+    # 5. Crossref Fallback if blocked by Cloudflare or fields are empty
+    if not data.get("authors") or data.get("title") in ["www.benthamdirect.com", "Just a moment...", ""] or data.get("published_date") == "N/A":
+        try:
+            current_url = driver.current_url or ""
+            doi_match = re.search(r'10\.\d{4,9}/[-._;()/:A-Za-z0-9]+', current_url)
+            if doi_match:
+                doi = doi_match.group(0).rstrip('/')
+                import requests
+                headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+                cr_resp = requests.get(f"https://api.crossref.org/works/{doi}", headers=headers, timeout=8)
+                if cr_resp.status_code == 200:
+                    msg = cr_resp.json().get("message", {})
+                    # Title fallback
+                    if data.get("title") in ["www.benthamdirect.com", "Just a moment...", ""] and msg.get("title"):
+                        data["title"] = msg["title"][0] if isinstance(msg["title"], list) else str(msg["title"])
+                    # Authors fallback
+                    if not data.get("authors") and msg.get("author"):
+                        cr_authors = []
+                        for a in msg["author"]:
+                            g = a.get("given", "").strip()
+                            f = a.get("family", "").strip()
+                            name = f"{g} {f}".strip() if g and f else (f or g)
+                            if name and name not in cr_authors:
+                                cr_authors.append(name)
+                        if cr_authors:
+                            data["authors"] = cr_authors
+                    # Date fallback
+                    if data.get("published_date") == "N/A":
+                        date_parts = msg.get("published-online", {}).get("date-parts") or msg.get("published-print", {}).get("date-parts") or msg.get("issued", {}).get("date-parts")
+                        if date_parts and date_parts[0]:
+                            data["published_date"] = str(date_parts[0][0])
+                    # Abstract fallback
+                    current_abs = data.get("abstract", "").strip()
+                    if (current_abs in ["N/A", "", "Abstract"] or len(current_abs) <= 15) and msg.get("abstract"):
+                        clean_abs = re.sub(r'<[^>]+>', '', msg["abstract"]).strip()
+                        if "Abstract" in clean_abs:
+                            clean_abs = clean_abs[clean_abs.find("Abstract"):]
+                        else:
+                            clean_abs = "Abstract\n\n" + clean_abs
+                        data["abstract"] = format_abstract_text(clean_abs)
+        except Exception:
+            pass
+
     return data
 
 def extract_sage_data(driver):
@@ -1347,6 +1390,49 @@ def extract_sage_data(driver):
         data["abstract"] = format_abstract_text(raw_text)
     except Exception:
         data["abstract"] = "N/A"
+
+    # 5. Crossref Fallback if blocked by Cloudflare or fields are empty
+    if not data.get("authors") or data.get("title") in ["journals.sagepub.com", "Just a moment...", ""] or data.get("published_date") == "N/A":
+        try:
+            current_url = driver.current_url or ""
+            doi_match = re.search(r'10\.\d{4,9}/[-._;()/:A-Za-z0-9]+', current_url)
+            if doi_match:
+                doi = doi_match.group(0).rstrip('/')
+                import requests
+                headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+                cr_resp = requests.get(f"https://api.crossref.org/works/{doi}", headers=headers, timeout=8)
+                if cr_resp.status_code == 200:
+                    msg = cr_resp.json().get("message", {})
+                    # Title fallback
+                    if data.get("title") in ["journals.sagepub.com", "Just a moment...", ""] and msg.get("title"):
+                        data["title"] = msg["title"][0] if isinstance(msg["title"], list) else str(msg["title"])
+                    # Authors fallback
+                    if not data.get("authors") and msg.get("author"):
+                        cr_authors = []
+                        for a in msg["author"]:
+                            g = a.get("given", "").strip()
+                            f = a.get("family", "").strip()
+                            name = f"{g} {f}".strip() if g and f else (f or g)
+                            if name and name not in cr_authors:
+                                cr_authors.append(name)
+                        if cr_authors:
+                            data["authors"] = cr_authors
+                    # Date fallback
+                    if data.get("published_date") == "N/A":
+                        date_parts = msg.get("published-online", {}).get("date-parts") or msg.get("published-print", {}).get("date-parts") or msg.get("issued", {}).get("date-parts")
+                        if date_parts and date_parts[0]:
+                            data["published_date"] = str(date_parts[0][0])
+                    # Abstract fallback
+                    current_abs = data.get("abstract", "").strip()
+                    if (current_abs in ["N/A", "", "Abstract"] or len(current_abs) <= 15) and msg.get("abstract"):
+                        clean_abs = re.sub(r'<[^>]+>', '', msg["abstract"]).strip()
+                        if "Abstract" in clean_abs:
+                            clean_abs = clean_abs[clean_abs.find("Abstract"):]
+                        else:
+                            clean_abs = "Abstract\n\n" + clean_abs
+                        data["abstract"] = format_abstract_text(clean_abs)
+        except Exception:
+            pass
 
     return data
 
