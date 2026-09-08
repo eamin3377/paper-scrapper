@@ -95,6 +95,11 @@ def create_humanoid_driver(headless=False):
         options.add_argument("--start-maximized")
         options.add_argument(f"user-agent={user_agent}")
         options.add_argument("--lang=en-US,en")
+        
+        # Use a persistent browser profile directory so Cloudflare clearance cookies are saved
+        profile_dir = os.path.join(os.path.expanduser("~"), ".scrapper_chrome_profile")
+        os.makedirs(profile_dir, exist_ok=True)
+        options.add_argument(f"--user-data-dir={profile_dir}")
         options.page_load_strategy = 'eager'
         
         try:
@@ -109,17 +114,32 @@ def create_humanoid_driver(headless=False):
 
     return create_lite_driver(headless=headless)
 
-def wait_for_captcha_and_content(driver, selectors, timeout=15):
+def wait_for_captcha_and_content(driver, selectors, timeout=30):
     """
-    Polls the DOM rapidly. As soon as any target article element appears after CAPTCHA,
-    and page title is no longer 'Are you a robot?', returns True immediately.
+    Polls the DOM rapidly. Detects Cloudflare Turnstile iframes and waits for user / auto-resolution.
+    As soon as any target article element appears, returns True immediately.
     """
     start_time = time.time()
     while time.time() - start_time < timeout:
         try:
             title = driver.title.lower()
-            if "are you a robot" in title or "just a moment" in title or "cloudflare" in title:
-                time.sleep(0.5)
+            if "are you a robot" in title or "just a moment" in title or "cloudflare" in title or "attention required" in title:
+                # Try clicking Turnstile checkbox inside iframe if present
+                try:
+                    iframes = driver.find_elements(By.CSS_SELECTOR, "iframe[src*='cloudflare'], iframe[src*='turnstile'], iframe[title*='challenge']")
+                    for f in iframes:
+                        driver.switch_to.frame(f)
+                        box = driver.find_elements(By.CSS_SELECTOR, "input[type='checkbox'], #challenge-stage input, .ctp-checkbox-label")
+                        if box:
+                            box[0].click()
+                            time.sleep(1)
+                        driver.switch_to.default_content()
+                except Exception:
+                    try:
+                        driver.switch_to.default_content()
+                    except Exception:
+                        pass
+                time.sleep(1.0)
                 continue
 
             for selector in selectors:
@@ -128,7 +148,7 @@ def wait_for_captcha_and_content(driver, selectors, timeout=15):
                     return True
         except Exception:
             pass
-        time.sleep(0.4)
+        time.sleep(0.5)
     return False
 
 def humanoid_mouse_and_scroll(driver):
