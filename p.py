@@ -905,6 +905,121 @@ def extract_wiley_data(driver):
 
     return data
 
+def extract_ieeexplore_data(driver):
+    """
+    Extracts structured paper details from IEEE Xplore (ieeexplore.ieee.org).
+    - Title: h1.document-title span, span[class*='document-title'], h1.document-title
+    - Authors: div.authors-info-container span.authors-info a span, span.authors-info a span
+    - Publication Year / Date: div.doc-abstract-confdate, div.doc-abstract-pubdate, or regex year
+    - Abstract: span.abstract-text-content, div.abstract-text
+    """
+    data = {}
+
+    # 1. Title
+    try:
+        title_elem = driver.find_element(
+            By.CSS_SELECTOR,
+            "h1.document-title span, h1.document-title, h1[class*='document-title'], h1"
+        )
+        data["title"] = clean_title_text(title_elem.text.strip())
+    except Exception:
+        data["title"] = driver.title
+
+    # 2. Authors
+    try:
+        author_names = []
+        # Target: div.authors-info-container span.authors-info a span
+        author_elements = driver.find_elements(
+            By.CSS_SELECTOR,
+            "div.authors-info-container span.authors-info span.blue-tooltip a span, "
+            "div.authors-info-container span.authors-info a span, "
+            "div.authors-info-container span.authors-info a, "
+            "span.authors-info-container a span"
+        )
+        for elem in author_elements:
+            name = elem.text.strip()
+            if name and name not in author_names and len(name) > 1:
+                author_names.append(name)
+
+        if not author_names:
+            meta_authors = driver.find_elements(By.CSS_SELECTOR, "meta[name='citation_author']")
+            for ma in meta_authors:
+                content = ma.get_attribute("content")
+                if content and content.strip() not in author_names:
+                    author_names.append(content.strip())
+
+        data["authors"] = author_names
+    except Exception:
+        data["authors"] = []
+
+    # 3. Publication Year / Date
+    try:
+        date_str = "N/A"
+        # Check metadata tags first (most reliable on IEEE)
+        try:
+            meta_date = driver.find_element(
+                By.CSS_SELECTOR,
+                "meta[name='citation_publication_date'], meta[name='citation_date'], meta[name='citation_online_date'], meta[name='citation_conference_date']"
+            )
+            val = meta_date.get_attribute("content")
+            if val:
+                date_str = val.strip()
+        except Exception:
+            pass
+
+        # Look in visible DOM segments for published year
+        if date_str == "N/A":
+            date_selectors = [
+                "div.doc-abstract-confdate",
+                "div.doc-abstract-pubdate",
+                "div[class*='publisher-info-container']",
+                "div.u-pb-1"
+            ]
+            for sel in date_selectors:
+                elements = driver.find_elements(By.CSS_SELECTOR, sel)
+                for elem in elements:
+                    text = elem.text
+                    match = re.search(r'\b(19\d\d|20\d\d)\b', text)
+                    if match:
+                        date_str = match.group(1)
+                        break
+                if date_str != "N/A":
+                    break
+
+        data["published_date"] = date_str
+    except Exception:
+        data["published_date"] = "N/A"
+
+    # 4. Abstract
+    try:
+        raw_text = ""
+        try:
+            abs_elem = driver.find_element(
+                By.CSS_SELECTOR,
+                "span.abstract-text-content, div.abstract-text div, div.abstract-desktop-container, div.abstract-text"
+            )
+            raw_text = abs_elem.text.strip()
+        except Exception:
+            pass
+
+        if not raw_text:
+            try:
+                meta_abs = driver.find_element(By.CSS_SELECTOR, "meta[name='citation_abstract'], meta[property='og:description']")
+                raw_text = meta_abs.get_attribute("content") or ""
+            except Exception:
+                pass
+
+        if "Abstract" in raw_text:
+            raw_text = raw_text[raw_text.find("Abstract"):]
+        else:
+            raw_text = "Abstract\n\n" + raw_text
+
+        data["abstract"] = format_abstract_text(raw_text)
+    except Exception:
+        data["abstract"] = "N/A"
+
+    return data
+
 def load_links_from_json(json_path):
     """
     Reads a JSON file and extracts paper metadata.
@@ -1035,7 +1150,7 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
                     fast_selectors = [
                         "h1.title-dgb", "h1[class*='title-dgb']", "h1.c-article-title",
                         "h1[data-test='article-title']", "h1.title", "h1[itemprop='name']",
-                        "h1.ArticleDetailsV4__main__title", "h1"
+                        "h1.ArticleDetailsV4__main__title", "h1.document-title", "span.abstract-text-content", "h1"
                     ]
                     for _ in range(12):
                         try:
@@ -1145,6 +1260,16 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
                     scraped_data = extract_degruyterbrill_data(current_driver)
                     
                     print(f"\n--- [ De Gruyter Brill Extracted Data ] ---")
+                    print(f"📌 Title          : {scraped_data.get('title')}")
+                    print(f"👥 Author Names   : {', '.join(scraped_data.get('authors', []))}")
+                    print(f"📅 Published Date : {scraped_data.get('published_date')}")
+                    print(f"\n📖 Abstract (Formatted Plain Text):\n\n{scraped_data.get('abstract')}\n")
+
+                elif "ieeexplore.ieee.org" in parsed_domain:
+                    print(f"[*] IEEE Xplore Domain Detected -> Extracting IEEE Article Elements...")
+                    scraped_data = extract_ieeexplore_data(current_driver)
+
+                    print(f"\n--- [ IEEE Xplore Extracted Data ] ---")
                     print(f"📌 Title          : {scraped_data.get('title')}")
                     print(f"👥 Author Names   : {', '.join(scraped_data.get('authors', []))}")
                     print(f"📅 Published Date : {scraped_data.get('published_date')}")
