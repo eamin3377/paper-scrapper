@@ -3116,6 +3116,233 @@ def extract_dergipark_data(driver, item=None):
 
     return data
 
+def extract_ojs_data(driver, item=None):
+    """
+    Extracts structured paper details from Open Journal Systems (OJS) and TWIST Journal (twistjournal.net).
+    - Title: h1.page_title, h1.article-title, h1
+    - Authors: ul.authors li span.name, span.name, div.authors span.name
+    - Publication Year: a[href*='/issue/view/'], span.issue-date, span.published-date, meta citation_date
+    - Abstract: div.article-abstract p, section.item.abstract p, div.abstract p, p
+    - Fallback: Crossref / OpenAlex DOI & Title resolution
+    """
+    data = {}
+
+    # 1. Title
+    try:
+        title_elem = None
+        for sel in [
+            "h1.page_title", "h1.article-title", "h1.entry-title", "h1[class*='page_title']", "h1"
+        ]:
+            elems = driver.find_elements(By.CSS_SELECTOR, sel)
+            if elems and any(e.text.strip() for e in elems):
+                title_elem = [e for e in elems if e.text.strip()][0]
+                break
+
+        if title_elem:
+            data["title"] = clean_title_text(title_elem.text.strip())
+        else:
+            meta_t = driver.find_element(By.CSS_SELECTOR, "meta[name='citation_title']")
+            data["title"] = clean_title_text(meta_t.get_attribute("content") or "")
+    except Exception:
+        data["title"] = driver.title
+
+    # 2. Authors
+    try:
+        author_names = []
+        author_elements = driver.find_elements(
+            By.CSS_SELECTOR,
+            "ul.authors li span.name, span.name, div.authors span.name, a.author-name, span.author"
+        )
+        for elem in author_elements:
+            name = elem.text.strip()
+            # strip out orcid URLs or email if captured
+            name = re.sub(r'https?://[^\s]+', '', name)
+            name = re.sub(r'[\w\.-]+@[\w\.-]+', '', name)
+            name = re.sub(r'[†*‡§\d]', '', name).strip()
+            if name and name not in author_names and len(name) > 2 and "\n" not in name:
+                author_names.append(name)
+
+        if not author_names:
+            meta_authors = driver.find_elements(By.CSS_SELECTOR, "meta[name='citation_author'], meta[name='DC.Creator']")
+            for ma in meta_authors:
+                val = ma.get_attribute("content")
+                if val and val.strip() and val.strip() not in author_names:
+                    author_names.append(val.strip())
+
+        data["authors"] = author_names
+    except Exception:
+        data["authors"] = []
+
+    # 3. Publication Year
+    try:
+        date_str = "N/A"
+        # Check meta tags first
+        for meta_sel in [
+            "meta[name='citation_date']",
+            "meta[name='citation_publication_date']",
+            "meta[name='citation_online_date']",
+            "meta[name='DC.Date']"
+        ]:
+            try:
+                elem = driver.find_element(By.CSS_SELECTOR, meta_sel)
+                val = elem.get_attribute("content")
+                if val:
+                    match = re.search(r'\b(19\d\d|20\d\d)\b', val)
+                    if match:
+                        date_str = match.group(1)
+                        break
+            except Exception:
+                pass
+
+        # Strategy B: Find text in issue links e.g. <a href=".../issue/view/17">Vol. 19 No. 4 (2024)</a>
+        if date_str == "N/A":
+            issue_elems = driver.find_elements(By.CSS_SELECTOR, "a[href*='/issue/view/'], div.item.issue, div.published")
+            for el in issue_elems:
+                txt = el.text.strip()
+                match = re.search(r'\b(19\d\d|20\d\d)\b', txt)
+                if match:
+                    date_str = match.group(1)
+                    break
+
+        # Strategy C: General fallback across text
+        if date_str == "N/A":
+            body_text = driver.find_element(By.TAG_NAME, "body").text
+            match = re.search(r'\b(19\d\d|20\d\d)\b', body_text)
+            if match:
+                date_str = match.group(1)
+
+        data["published_date"] = date_str
+    except Exception:
+        data["published_date"] = "N/A"
+
+    # 4. Abstract
+    try:
+        raw_text = ""
+        for abs_sel in [
+            "div.article-abstract p",
+            "section.item.abstract p",
+            "div.abstract p",
+            "section.item.abstract",
+            "div.article-abstract",
+            "div[class*='abstract'] p",
+            "div[class*='abstract']"
+        ]:
+            elems = driver.find_elements(By.CSS_SELECTOR, abs_sel)
+            if elems and any(e.text.strip() for e in elems):
+                p_texts = [e.text.strip() for e in elems if len(e.text.strip()) > 20]
+                if p_texts:
+                    raw_text = "\n\n".join(p_texts)
+                    break
+
+        if not raw_text:
+            try:
+                meta_abs = driver.find_element(
+                    By.CSS_SELECTOR,
+                    "meta[name='citation_abstract'], meta[name='description'], meta[property='og:description']"
+                )
+                raw_text = meta_abs.get_attribute("content") or ""
+            except Exception:
+                pass
+
+        if "Abstract" in raw_text:
+            raw_text = raw_text[raw_text.find("Abstract"):]
+        else:
+            raw_text = "Abstract\n\n" + raw_text
+
+        data["abstract"] = format_abstract_text(raw_text)
+    except Exception:
+        data["abstract"] = "N/A"
+
+    # 5. Crossref Fallback if blocked or missing fields
+    cur_title = data.get("title", "").strip().lower()
+    title_bad = cur_title in [
+        "twist", "twistjournal", "twistjournal.net", "just a moment...", "are you a robot", "attention required", ""
+    ] or cur_title.startswith("www.")
+    
+    if not data.get("authors") or title_bad or data.get("published_date") == "N/A" or data.get("abstract") in ["N/A", "", "Abstract"]:
+        try:
+            doc_link = item.get("document_link", "") if isinstance(item, dict) else ""
+            item_link = item.get("link", "") if isinstance(item, dict) else ""
+            cur_url = driver.current_url or ""
+            target_str = f"{doc_link} {item_link} {cur_url}"
+            doi = None
+            doi_match = re.search(r'10\.\d{4,9}/[-._;()/:A-Za-z0-9]+', target_str)
+            if doi_match:
+                doi = doi_match.group(0).rstrip('/')
+                doi = re.sub(r'\.(?:abstract|full|pdf|article)$', '', doi, flags=re.I)
+
+            cand_title = item.get("title") if isinstance(item, dict) else None
+            if not doi and cand_title and cand_title not in ["No Title", "Direct URL"]:
+                try:
+                    import urllib.parse
+                    q = urllib.parse.quote_plus(cand_title)
+                    import requests
+                    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+                    cr_s = requests.get(f"https://api.crossref.org/works?query.title={q}&rows=1", headers=headers, timeout=8)
+                    if cr_s.status_code == 200 and cr_s.json().get("message", {}).get("items"):
+                        doi = cr_s.json()["message"]["items"][0].get("DOI")
+                except Exception:
+                    pass
+
+            if doi:
+                doi = doi.rstrip('/')
+                import requests
+                headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+                cr_resp = requests.get(f"https://api.crossref.org/works/{doi}", headers=headers, timeout=8)
+                if cr_resp.status_code == 200:
+                    msg = cr_resp.json().get("message", {})
+                    if msg.get("title"):
+                        clean_t = msg["title"][0] if isinstance(msg["title"], list) else str(msg["title"])
+                        if title_bad or len(data.get("title", "")) < len(clean_t):
+                            data["title"] = clean_title_text(clean_t)
+                    if not data.get("authors") and msg.get("author"):
+                        cr_authors = []
+                        for a in msg["author"]:
+                            g = a.get("given", "").strip()
+                            f = a.get("family", "").strip()
+                            name = f"{g} {f}".strip() if g and f else (f or g)
+                            if name and name not in cr_authors:
+                                cr_authors.append(name)
+                        if cr_authors:
+                            data["authors"] = cr_authors
+                    if data.get("published_date") in ["N/A", "None", None]:
+                        date_parts = msg.get("published-online", {}).get("date-parts") or msg.get("issued", {}).get("date-parts") or msg.get("published-print", {}).get("date-parts")
+                        if date_parts and date_parts[0]:
+                            data["published_date"] = str(date_parts[0][0])
+                    current_abs = data.get("abstract", "").strip()
+                    if (current_abs in ["N/A", "", "Abstract"] or len(current_abs) <= 15) and msg.get("abstract"):
+                        clean_abs = re.sub(r'<[^>]+>', '', msg["abstract"]).strip()
+                        if "Abstract" in clean_abs:
+                            clean_abs = clean_abs[clean_abs.find("Abstract"):]
+                        else:
+                            clean_abs = "Abstract\n\n" + clean_abs
+                        data["abstract"] = format_abstract_text(clean_abs)
+
+                    # OpenAlex fallback if Crossref does not have abstract
+                    current_abs = data.get("abstract", "").strip()
+                    if current_abs in ["N/A", "", "Abstract"] or len(current_abs) <= 15:
+                        try:
+                            oa_resp = requests.get(f"https://api.openalex.org/works/https://doi.org/{doi}", headers=headers, timeout=8)
+                            if oa_resp.status_code == 200:
+                                inv = oa_resp.json().get("abstract_inverted_index")
+                                if inv:
+                                    words = sorted([(idx, word) for word, indices in inv.items() for idx in indices])
+                                    oa_text = " ".join([w[1] for w in words]).strip()
+                                    if oa_text:
+                                        data["abstract"] = format_abstract_text(f"Abstract\n\n{oa_text}")
+                        except Exception:
+                            pass
+        except Exception:
+            pass
+
+    # Safety fallback: if title is still the domain, use item title if provided
+    cur_title_final = data.get("title", "").strip().lower()
+    if cur_title_final in ["twist", "twistjournal", "twistjournal.net", "just a moment...", ""] or cur_title_final.startswith("www."):
+        if isinstance(item, dict) and item.get("title") and item.get("title") not in ["No Title", "Direct URL"]:
+            data["title"] = item.get("title")
+
+    return data
+
 def load_links_from_json(json_path):
     """
     Reads a JSON file and extracts paper metadata.
@@ -3254,7 +3481,8 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
                         "h1.title-dgb", "h1[class*='title-dgb']", "h1.c-article-title",
                         "h1[data-test='article-title']", "h1.title", "h1[itemprop='name']",
                         "h1.ArticleDetailsV4__main__title", "h1.document-title", "span.abstract-text-content",
-                        "h1[class*='font-extrabold']", "div.abstract-text", "div[class*='abstract-text']", "h1"
+                        "h1[class*='font-extrabold']", "div.abstract-text", "div[class*='abstract-text']",
+                        "h1.page_title", "section.item.abstract", "div.article-abstract", "h1"
                     ]
                     for _ in range(12):
                         try:
@@ -3484,6 +3712,16 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
                     scraped_data = extract_dergipark_data(current_driver, item=item)
 
                     print(f"\n--- [ DergiPark Extracted Data ] ---")
+                    print(f"📌 Title          : {scraped_data.get('title')}")
+                    print(f"👥 Author Names   : {', '.join(scraped_data.get('authors', []))}")
+                    print(f"📅 Published Date : {scraped_data.get('published_date')}")
+                    print(f"\n📖 Abstract (Formatted Plain Text):\n\n{scraped_data.get('abstract')}\n")
+
+                elif "twistjournal.net" in parsed_domain or "twistjournal" in parsed_domain or "/article/view/" in url:
+                    print(f"[*] TWIST / OJS Domain Detected -> Extracting Article Elements...")
+                    scraped_data = extract_ojs_data(current_driver, item=item)
+
+                    print(f"\n--- [ TWIST / OJS Extracted Data ] ---")
                     print(f"📌 Title          : {scraped_data.get('title')}")
                     print(f"👥 Author Names   : {', '.join(scraped_data.get('authors', []))}")
                     print(f"📅 Published Date : {scraped_data.get('published_date')}")
