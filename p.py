@@ -2578,7 +2578,7 @@ def extract_asce_data(driver, item=None):
 
     # 5. Crossref Fallback if blocked or missing fields
     title_bad = data.get("title", "").strip().lower() in [
-        "asce library", "ascelibrary.org", "just a moment...", "are you a robot", "attention required", ""
+        "asce library", "ascelibrary.org", "authorea", "authorea.com", "just a moment...", "are you a robot", "attention required", ""
     ]
     if not data.get("authors") or title_bad or data.get("published_date") == "N/A" or data.get("abstract") in ["N/A", "", "Abstract"]:
         try:
@@ -2661,7 +2661,7 @@ def extract_asce_data(driver, item=None):
             pass
 
     # Safety fallback: if title is still the domain, use item title if provided
-    if data.get("title", "").strip().lower() in ["asce library", "ascelibrary.org", "just a moment...", ""]:
+    if data.get("title", "").strip().lower() in ["asce library", "ascelibrary.org", "authorea", "authorea.com", "just a moment...", ""]:
         if isinstance(item, dict) and item.get("title") and item.get("title") not in ["No Title", "Direct URL"]:
             data["title"] = item.get("title")
 
@@ -2970,7 +2970,7 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
         for item in link_items:
             url = item["link"]
             parsed_domain = urlparse(url).netloc.lower()
-            needs_captcha_humanoid = ("cell.com" in parsed_domain) or ("wiley.com" in parsed_domain) or ("sciencedirect.com" in parsed_domain) or ("tandfonline.com" in parsed_domain) or ("benthamdirect.com" in parsed_domain) or ("sagepub.com" in parsed_domain) or ("aip.org" in parsed_domain) or ("cambridge.org" in parsed_domain) or ("rsc.org" in parsed_domain) or ("emerald.com" in parsed_domain) or ("ascelibrary.org" in parsed_domain) or ("medrxiv.org" in parsed_domain) or ("biorxiv.org" in parsed_domain)
+            needs_captcha_humanoid = ("cell.com" in parsed_domain) or ("wiley.com" in parsed_domain) or ("sciencedirect.com" in parsed_domain) or ("tandfonline.com" in parsed_domain) or ("benthamdirect.com" in parsed_domain) or ("sagepub.com" in parsed_domain) or ("aip.org" in parsed_domain) or ("cambridge.org" in parsed_domain) or ("rsc.org" in parsed_domain) or ("emerald.com" in parsed_domain) or ("ascelibrary.org" in parsed_domain) or ("authorea.com" in parsed_domain) or ("medrxiv.org" in parsed_domain) or ("biorxiv.org" in parsed_domain)
 
             required_type = "captcha_humanoid" if needs_captcha_humanoid else "lite"
             if current_driver_type != required_type:
@@ -3228,11 +3228,11 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
                     print(f"📅 Published Date : {scraped_data.get('published_date')}")
                     print(f"\n📖 Abstract (Formatted Plain Text):\n\n{scraped_data.get('abstract')}\n")
 
-                elif "ascelibrary.org" in parsed_domain:
-                    print(f"[*] ASCE Library Domain Detected -> Extracting ASCE Article Elements...")
+                elif "ascelibrary.org" in parsed_domain or "authorea.com" in parsed_domain:
+                    print(f"[*] ASCE Library / Authorea Domain Detected -> Extracting Article Elements...")
                     scraped_data = extract_asce_data(current_driver, item=item)
 
-                    print(f"\n--- [ ASCE Library Extracted Data ] ---")
+                    print(f"\n--- [ ASCE Library / Authorea Extracted Data ] ---")
                     print(f"📌 Title          : {scraped_data.get('title')}")
                     print(f"👥 Author Names   : {', '.join(scraped_data.get('authors', []))}")
                     print(f"📅 Published Date : {scraped_data.get('published_date')}")
