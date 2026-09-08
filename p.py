@@ -1,6 +1,7 @@
 import sys
 import os
 import json
+import csv
 import time
 import re
 import random
@@ -4323,6 +4324,54 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
                 current_driver.quit()
             except Exception:
                 pass
+
+        # Save all results to a 5-column CSV file
+        csv_filename = "scraped_papers.csv"
+        try:
+            with open(csv_filename, mode="w", newline="", encoding="utf-8-sig") as csv_file:
+                fieldnames = ["SL NO.", "Title", "Authors", "Published Year", "Abstract"]
+                writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
+                writer.writeheader()
+
+                for idx, res in enumerate(results, start=1):
+                    url = res.get("url", "")
+                    scraped_data = res.get("scraped_data") or {}
+                    
+                    # Title logic: if empty, missing, or failed, fallback to the URL itself
+                    raw_title = scraped_data.get("title")
+                    if not raw_title or not str(raw_title).strip() or str(raw_title).strip().lower() in ["n/a", "none"]:
+                        title = url
+                    else:
+                        title = str(raw_title).strip()
+
+                    # Authors logic: comma-separated string
+                    raw_authors = scraped_data.get("authors")
+                    if isinstance(raw_authors, list):
+                        authors = ", ".join(str(a).strip() for a in raw_authors if str(a).strip())
+                    elif raw_authors:
+                        authors = str(raw_authors).strip()
+                    else:
+                        authors = "N/A"
+
+                    # Published Year logic
+                    pub_year = scraped_data.get("published_date") or scraped_data.get("year") or "N/A"
+                    pub_year = str(pub_year).strip()
+
+                    # Abstract logic
+                    abstract = scraped_data.get("abstract") or "N/A"
+                    abstract = str(abstract).strip()
+
+                    writer.writerow({
+                        "SL NO.": idx,
+                        "Title": title,
+                        "Authors": authors,
+                        "Published Year": pub_year,
+                        "Abstract": abstract
+                    })
+
+            print(f"[+] 📊 Successfully exported {len(results)} paper(s) to CSV: {os.path.abspath(csv_filename)}")
+        except Exception as csv_err:
+            print(f"[!] Error saving CSV: {csv_err}")
 
     return results
 
