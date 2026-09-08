@@ -2809,9 +2809,12 @@ def extract_medrxiv_data(driver, item=None):
         data["abstract"] = "N/A"
 
     # 5. Crossref Fallback if blocked or missing fields
-    title_bad = data.get("title", "").strip().lower() in [
-        "medrxiv", "biorxiv", "just a moment...", "are you a robot", "attention required", ""
-    ]
+    cur_title = data.get("title", "").strip().lower()
+    title_bad = cur_title in [
+        "medrxiv", "biorxiv", "www.medrxiv.org", "www.biorxiv.org",
+        "just a moment...", "are you a robot", "attention required", ""
+    ] or "medrxiv" == cur_title or cur_title.startswith("www.")
+    
     if not data.get("authors") or title_bad or data.get("published_date") == "N/A" or data.get("abstract") in ["N/A", "", "Abstract"]:
         try:
             doc_link = item.get("document_link", "") if isinstance(item, dict) else ""
@@ -2822,6 +2825,8 @@ def extract_medrxiv_data(driver, item=None):
             doi_match = re.search(r'10\.\d{4,9}/[-._;()/:A-Za-z0-9]+', target_str)
             if doi_match:
                 doi = doi_match.group(0).rstrip('/')
+                # Remove URL suffixes like .abstract or .full
+                doi = re.sub(r'\.(?:abstract|full|pdf|article)$', '', doi, flags=re.I)
 
             # Search Crossref by paper title if available
             cand_title = item.get("title") if isinstance(item, dict) else None
@@ -2859,7 +2864,7 @@ def extract_medrxiv_data(driver, item=None):
                         if cr_authors:
                             data["authors"] = cr_authors
                     if data.get("published_date") in ["N/A", "None", None]:
-                        date_parts = msg.get("published-online", {}).get("date-parts") or msg.get("published-print", {}).get("date-parts") or msg.get("issued", {}).get("date-parts")
+                        date_parts = msg.get("published-online", {}).get("date-parts") or msg.get("issued", {}).get("date-parts") or msg.get("published-print", {}).get("date-parts")
                         if date_parts and date_parts[0]:
                             data["published_date"] = str(date_parts[0][0])
                     current_abs = data.get("abstract", "").strip()
@@ -2874,7 +2879,8 @@ def extract_medrxiv_data(driver, item=None):
             pass
 
     # Safety fallback: if title is still the domain, use item title if provided
-    if data.get("title", "").strip().lower() in ["medrxiv", "biorxiv", "just a moment...", ""]:
+    cur_title_final = data.get("title", "").strip().lower()
+    if cur_title_final in ["medrxiv", "biorxiv", "www.medrxiv.org", "www.biorxiv.org", "just a moment...", ""] or cur_title_final.startswith("www."):
         if isinstance(item, dict) and item.get("title") and item.get("title") not in ["No Title", "Direct URL"]:
             data["title"] = item.get("title")
 
@@ -2964,7 +2970,7 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
         for item in link_items:
             url = item["link"]
             parsed_domain = urlparse(url).netloc.lower()
-            needs_captcha_humanoid = ("cell.com" in parsed_domain) or ("wiley.com" in parsed_domain) or ("sciencedirect.com" in parsed_domain) or ("tandfonline.com" in parsed_domain) or ("benthamdirect.com" in parsed_domain) or ("sagepub.com" in parsed_domain) or ("aip.org" in parsed_domain) or ("cambridge.org" in parsed_domain) or ("rsc.org" in parsed_domain) or ("emerald.com" in parsed_domain) or ("ascelibrary.org" in parsed_domain)
+            needs_captcha_humanoid = ("cell.com" in parsed_domain) or ("wiley.com" in parsed_domain) or ("sciencedirect.com" in parsed_domain) or ("tandfonline.com" in parsed_domain) or ("benthamdirect.com" in parsed_domain) or ("sagepub.com" in parsed_domain) or ("aip.org" in parsed_domain) or ("cambridge.org" in parsed_domain) or ("rsc.org" in parsed_domain) or ("emerald.com" in parsed_domain) or ("ascelibrary.org" in parsed_domain) or ("medrxiv.org" in parsed_domain) or ("biorxiv.org" in parsed_domain)
 
             required_type = "captcha_humanoid" if needs_captcha_humanoid else "lite"
             if current_driver_type != required_type:
@@ -2975,7 +2981,7 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
                         pass
                 
                 if required_type == "captcha_humanoid":
-                    print("[*] 🛡️ Initializing Undetected Humanoid Browser (Cell / Wiley / ScienceDirect / TandF / Cambridge / RSC / Emerald / ASCE Mode)...")
+                    print("[*] 🛡️ Initializing Undetected Humanoid Browser (Cell / Wiley / ScienceDirect / TandF / Cambridge / RSC / Emerald / ASCE / medRxiv Mode)...")
                     current_driver = create_humanoid_driver(headless=headless)
                 else:
                     print("[*] ⚡ Initializing Fast Lite Browser (Springer/Frontiers/MDPI/Nature Mode)...")
