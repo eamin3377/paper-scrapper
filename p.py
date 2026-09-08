@@ -128,6 +128,12 @@ def wait_for_captcha_and_content(driver, selectors, timeout=45):
     while time.time() - start_time < timeout:
         try:
             title = driver.title.lower()
+            page_src_lower = ""
+            try:
+                page_src_lower = driver.page_source.lower()[:4000]
+            except Exception:
+                pass
+
             is_verification = (
                 "are you a robot" in title or 
                 "just a moment" in title or 
@@ -136,6 +142,9 @@ def wait_for_captcha_and_content(driver, selectors, timeout=45):
                 "security check" in title or
                 "verify you are human" in title or
                 "verifying" in title or
+                "security service to protect" in page_src_lower or
+                "verifies you are not a bot" in page_src_lower or
+                "protect against malicious bots" in page_src_lower or
                 driver.find_elements(By.CSS_SELECTOR, "iframe[src*='challenges.cloudflare.com'], div#challenge-stage, div.cf-turnstile")
             )
 
@@ -191,6 +200,17 @@ def format_abstract_text(text):
     - Adds double spacing before section headings.
     """
     if not text:
+        return "N/A"
+
+    bot_phrases = [
+        "security service to protect",
+        "protect against malicious bots",
+        "verifies you are not a bot",
+        "enable javascript and cookies",
+        "ray id:",
+        "cloudflare"
+    ]
+    if any(bp in text.lower() for bp in bot_phrases):
         return "N/A"
     
     # Slice text starting from 'Abstract' if present
@@ -1964,7 +1984,11 @@ def extract_rsc_data(driver, item=None):
         if not raw_text or len(raw_text) < 40:
             for p in driver.find_elements(By.TAG_NAME, "p"):
                 t = p.text.strip()
-                if len(t) > 100 and not any(skip in t.lower() for skip in ["cookie", "terms of use", "privacy policy", "rights reserved"]):
+                t_low = t.lower()
+                if len(t) > 100 and not any(skip in t_low for skip in [
+                    "cookie", "terms of use", "privacy policy", "rights reserved",
+                    "security service to protect", "verifies you are not a bot", "malicious bots"
+                ]):
                     raw_text = t
                     break
 
@@ -1975,7 +1999,7 @@ def extract_rsc_data(driver, item=None):
                     "meta[name='citation_abstract'], meta[name='description'], meta[property='og:description']"
                 )
                 meta_content = meta_abs.get_attribute("content") or ""
-                if len(meta_content.strip()) > 30 and "article published in" not in meta_content.lower():
+                if len(meta_content.strip()) > 30 and "article published in" not in meta_content.lower() and "security service" not in meta_content.lower():
                     raw_text = meta_content
             except Exception:
                 pass
@@ -1997,7 +2021,15 @@ def extract_rsc_data(driver, item=None):
         "pubs.acs.org", "acs publications", "american chemical society",
         "just a moment...", "are you a robot", ""
     ]
-    if not data.get("authors") or title_bad or data.get("published_date") == "N/A" or data.get("abstract") in ["N/A", "", "Abstract"]:
+    cur_abs = data.get("abstract", "").strip().lower()
+    abs_bad = (
+        cur_abs in ["n/a", "", "abstract"] or
+        len(cur_abs) <= 25 or
+        "security service to protect" in cur_abs or
+        "verifies you are not a bot" in cur_abs or
+        "malicious bots" in cur_abs
+    )
+    if not data.get("authors") or title_bad or data.get("published_date") == "N/A" or abs_bad:
         try:
             item_link = item.get("link", "") if isinstance(item, dict) else ""
             cur_url = driver.current_url or ""
