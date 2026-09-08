@@ -1897,7 +1897,14 @@ def extract_rsc_data(driver, item=None):
                 break
 
         if title_elem:
-            raw_title = title_elem.text.strip()
+            # Clone and remove any badges, access icons, or purchase buttons
+            raw_title = driver.execute_script("""
+                var clone = arguments[0].cloneNode(true);
+                var badges = clone.querySelectorAll('span[data-resource-id-access], .js-access-icon-placeholder, .screenreader-text, .badge');
+                badges.forEach(b => b.remove());
+                return clone.innerText || clone.textContent;
+            """, title_elem)
+            raw_title = raw_title.strip() if raw_title else title_elem.text.strip()
             raw_title = re.sub(r'(?i)\b(?:Open Access|Available to Purchase|Free Access)\b', '', raw_title).strip()
             data["title"] = clean_title_text(raw_title)
         else:
