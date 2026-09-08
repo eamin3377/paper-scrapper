@@ -114,64 +114,26 @@ def create_humanoid_driver(headless=False):
 
     return create_lite_driver(headless=headless)
 
-def wait_for_captcha_and_content(driver, selectors, timeout=45):
+def wait_for_captcha_and_content(driver, selectors, timeout=15):
     """
-    Waits naturally as a human browser. If a verification / Cloudflare page appears,
-    it gives the user plenty of time (with live countdown/prompt in console) to complete
-    the verification manually or allow Turnstile to resolve naturally.
-    As soon as verification clears and article content appears, it proceeds immediately.
+    Polls the DOM rapidly. As soon as any target article element appears after CAPTCHA,
+    and page title is no longer 'Are you a robot?' or Cloudflare check, returns True immediately.
     """
     start_time = time.time()
-    notified_user = False
-    last_print_time = 0
-
     while time.time() - start_time < timeout:
         try:
             title = driver.title.lower()
-            page_src_lower = ""
-            try:
-                page_src_lower = driver.page_source.lower()[:4000]
-            except Exception:
-                pass
-
-            is_verification = (
-                "are you a robot" in title or 
-                "just a moment" in title or 
-                "cloudflare" in title or 
-                "attention required" in title or
-                "security check" in title or
-                "verify you are human" in title or
-                "verifying" in title or
-                "security service to protect" in page_src_lower or
-                "verifies you are not a bot" in page_src_lower or
-                "protect against malicious bots" in page_src_lower or
-                driver.find_elements(By.CSS_SELECTOR, "iframe[src*='challenges.cloudflare.com'], div#challenge-stage, div.cf-turnstile")
-            )
-
-            if is_verification:
-                curr_now = time.time()
-                remaining = int(timeout - (curr_now - start_time))
-                if not notified_user or (curr_now - last_print_time > 8):
-                    print(f"[*] ⏳ Security / Human Verification screen detected! Please complete the verification in the browser window if prompted (Waiting {remaining}s)...")
-                    notified_user = True
-                    last_print_time = curr_now
-
-                time.sleep(1.0)
+            if "are you a robot" in title or "just a moment" in title or "cloudflare" in title or "attention required" in title:
+                time.sleep(0.5)
                 continue
 
-            # If verification is no longer showing, check for target content
             for selector in selectors:
                 elems = driver.find_elements(By.CSS_SELECTOR, selector)
                 if elems and any(e.text.strip() for e in elems):
-                    if notified_user:
-                        print("[*] ✅ Verification passed and article content detected!")
                     return True
         except Exception:
             pass
-        time.sleep(0.5)
-
-    if notified_user:
-        print("[!] Verification wait timed out. Proceeding to extract available DOM / Crossref metadata.")
+        time.sleep(0.4)
     return False
 
 def humanoid_mouse_and_scroll(driver):
@@ -4019,10 +3981,10 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
                         "h1.title", "h1[class*='article-title']", "p.articleBody_abstractText", "div.al-authors-list",
                         "h1 a[href*='viewcontent.cgi']", "p#title", "div#abstract p", "div#abstract"
                     ]
-                    found = wait_for_captcha_and_content(current_driver, target_selectors, timeout=40)
+                    found = wait_for_captcha_and_content(current_driver, target_selectors, timeout=12)
                     if not found:
                         humanoid_mouse_and_scroll(current_driver)
-                        wait_for_captcha_and_content(current_driver, target_selectors, timeout=10)
+                        wait_for_captcha_and_content(current_driver, target_selectors, timeout=8)
                 else:
                     # For fast lite sites (Springer, MDPI, Frontiers, Nature, De Gruyter Brill), wait up to 6 seconds for title/body element
                     fast_selectors = [
