@@ -5,9 +5,16 @@ import csv
 import time
 import re
 import random
+import io
 from urllib.parse import urlparse
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.action_chains import ActionChains
+
+try:
+    import pypdf
+    HAS_PYPDF = True
+except ImportError:
+    HAS_PYPDF = False
 
 try:
     import undetected_chromedriver as uc
@@ -3888,6 +3895,87 @@ def extract_biofuel_data(driver, item=None):
 
     return data
 
+def extract_pdf_data(pdf_url, item=None):
+    """
+    Downloads and extracts text from a direct PDF URL using pypdf.
+    Parses Title, Authors, Published Year, and Abstract from the first pages of the PDF.
+    Enriches with Crossref if a DOI is detected in the PDF text.
+    """
+    import requests
+    data = {
+        "title": item.get("title") if (item and item.get("title") not in ["No Title", "Direct URL"]) else "N/A",
+        "authors": [item.get("authors")] if (item and item.get("authors") and item.get("authors") != "N/A") else [],
+        "published_date": str(item.get("year")) if (item and item.get("year") and item.get("year") != "N/A") else "N/A",
+        "abstract": "N/A"
+    }
+
+    try:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+            "Accept": "application/pdf,*/*"
+        }
+        resp = requests.get(pdf_url, headers=headers, timeout=25, allow_redirects=True)
+        if resp.status_code != 200 or not resp.content:
+            return data
+
+        pdf_bytes = resp.content
+        full_text = ""
+        first_page_text = ""
+
+        if HAS_PYPDF:
+            try:
+                reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
+                num_pages = len(reader.pages)
+                # Read up to the first 3 pages
+                pages_to_read = min(3, num_pages)
+                for p_num in range(pages_to_read):
+                    page_text = reader.pages[p_num].extract_text() or ""
+                    if p_num == 0:
+                        first_page_text = page_text
+                    full_text += "\n" + page_text
+
+                # Check PDF document metadata
+                if reader.metadata:
+                    meta_title = reader.metadata.title
+                    if meta_title and len(meta_title.strip()) > 5 and not meta_title.lower().endswith(".pdf"):
+                        if data["title"] == "N/A":
+                            data["title"] = clean_title_text(meta_title)
+                    meta_author = reader.metadata.author
+                    if meta_author and not data["authors"]:
+                        data["authors"] = [clean_author_name(a.strip()) for a in meta_author.split(",") if a.strip()]
+            except Exception:
+                pass
+
+        # 1. Abstract extraction from PDF text
+        if full_text:
+            text_norm = re.sub(r'[ \t]+', ' ', full_text)
+            # Find Abstract section heading
+            match_abs = re.search(r'(?i)\bAbstract\b[:\.\s—–-]*\n*(.*?)(?=\n\s*(?:(?:1[\.\s]+)?Introduction|Keywords|Index Terms|Background|Methods|Key words)|\Z)', text_norm, re.DOTALL)
+            if match_abs:
+                raw_abs = match_abs.group(1).strip()
+                # Clean up multiple newlines or hyphenated words
+                raw_abs = re.sub(r'-\n\s*', '', raw_abs)
+                raw_abs = re.sub(r'\s+', ' ', raw_abs).strip()
+                if len(raw_abs) >= 50:
+                    data["abstract"] = format_abstract_text(f"Abstract\n\n{raw_abs}")
+
+            # 2. Year extraction
+            if data["published_date"] == "N/A":
+                year_match = re.search(r'\b(20\d\d|19\d\d)\b', first_page_text[:1500])
+                if year_match:
+                    data["published_date"] = year_match.group(1)
+
+            # 3. DOI detection & Crossref Enrichment
+            doi_match = re.search(r'10\.\d{4,9}/[-._;()/:A-Za-z0-9]+', full_text[:4000])
+            if doi_match:
+                doi = doi_match.group(0).rstrip('.;,)')
+                enrich_with_crossref(data, doi)
+
+    except Exception:
+        pass
+
+    return data
+
 def load_links_from_json(json_path):
     """
     Reads a JSON or text file and extracts paper metadata.
@@ -4032,6 +4120,38 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
             print(f"[+] Target URL: {url}")
             print(f"------------------------------------------------------------------")
             
+            # Check if this is a direct PDF link
+            url_clean = url.strip().lower()
+            is_pdf = url_clean.endswith(".pdf") or ".pdf?" in url_clean or "/content/pdf/" in url_clean or "/files/rs-" in url_clean
+
+            if is_pdf:
+                print(f"[*] 📄 Direct PDF Link Detected -> Extracting PDF metadata & Abstract directly...")
+                try:
+                    start_time = time.time()
+                    scraped_data = extract_pdf_data(url, item=item)
+                    elapsed = time.time() - start_time
+                    print(f"[+] PDF Processed & Extracted in {elapsed:.2f} seconds!")
+
+                    print(f"\n--- [ PDF Extracted Data ] ---")
+                    print(f"📌 Title          : {scraped_data.get('title')}")
+                    print(f"👥 Author Names   : {', '.join(scraped_data.get('authors', []))}")
+                    print(f"📅 Published Date : {scraped_data.get('published_date')}")
+                    print(f"\n📖 Abstract (Formatted Plain Text):\n\n{scraped_data.get('abstract')}\n")
+
+                    results.append({
+                        "url": url,
+                        "scraped_data": scraped_data,
+                        "status": "success"
+                    })
+                except Exception as pdf_ex:
+                    print(f"[!] Failed to parse PDF {url}: {pdf_ex}")
+                    results.append({
+                        "url": url,
+                        "status": "failed",
+                        "error": str(pdf_ex)
+                    })
+                continue
+
             try:
                 start_time = time.time()
                 current_driver.get(url)
