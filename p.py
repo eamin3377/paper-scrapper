@@ -4048,6 +4048,10 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
                 elapsed = time.time() - start_time
                 print(f"[+] Loaded & Content Detected in {elapsed:.2f} seconds!")
 
+                # Update current URL and parsed domain in case of redirects
+                final_url = current_driver.current_url or url
+                parsed_domain = urlparse(final_url).netloc.lower() or parsed_domain
+
                 scraped_data = {}
                 
                 if "link.springer.com" in parsed_domain:
