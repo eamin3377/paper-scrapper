@@ -3402,6 +3402,21 @@ def extract_bepress_data(driver, item=None):
                         else:
                             clean_abs = "Abstract\n\n" + clean_abs
                         data["abstract"] = format_abstract_text(clean_abs)
+
+                    # OpenAlex fallback if Crossref does not have abstract
+                    current_abs = data.get("abstract", "").strip()
+                    if current_abs in ["N/A", "", "Abstract"] or len(current_abs) <= 15:
+                        try:
+                            oa_resp = requests.get(f"https://api.openalex.org/works/https://doi.org/{doi}", headers=headers, timeout=8)
+                            if oa_resp.status_code == 200:
+                                inv = oa_resp.json().get("abstract_inverted_index")
+                                if inv:
+                                    words = sorted([(idx, word) for word, indices in inv.items() for idx in indices])
+                                    oa_text = " ".join([w[1] for w in words]).strip()
+                                    if oa_text:
+                                        data["abstract"] = format_abstract_text(f"Abstract\n\n{oa_text}")
+                        except Exception:
+                            pass
         except Exception:
             pass
 
@@ -3955,7 +3970,7 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
         for item in link_items:
             url = item["link"]
             parsed_domain = urlparse(url).netloc.lower()
-            needs_captcha_humanoid = ("cell.com" in parsed_domain) or ("wiley.com" in parsed_domain) or ("sciencedirect.com" in parsed_domain) or ("tandfonline.com" in parsed_domain) or ("benthamdirect.com" in parsed_domain) or ("sagepub.com" in parsed_domain) or ("aip.org" in parsed_domain) or ("cambridge.org" in parsed_domain) or ("rsc.org" in parsed_domain) or ("acs.org" in parsed_domain) or ("emerald.com" in parsed_domain) or ("ascelibrary.org" in parsed_domain) or ("authorea.com" in parsed_domain) or ("medrxiv.org" in parsed_domain) or ("biorxiv.org" in parsed_domain) or ("twistjournal.net" in parsed_domain)
+            needs_captcha_humanoid = ("cell.com" in parsed_domain) or ("wiley.com" in parsed_domain) or ("sciencedirect.com" in parsed_domain) or ("tandfonline.com" in parsed_domain) or ("benthamdirect.com" in parsed_domain) or ("sagepub.com" in parsed_domain) or ("aip.org" in parsed_domain) or ("cambridge.org" in parsed_domain) or ("rsc.org" in parsed_domain) or ("acs.org" in parsed_domain) or ("emerald.com" in parsed_domain) or ("ascelibrary.org" in parsed_domain) or ("authorea.com" in parsed_domain) or ("medrxiv.org" in parsed_domain) or ("biorxiv.org" in parsed_domain) or ("twistjournal.net" in parsed_domain) or ("uokerbala.edu.iq" in parsed_domain) or ("kijoms" in parsed_domain)
 
             required_type = "captcha_humanoid" if needs_captcha_humanoid else "lite"
             if current_driver_type != required_type:
@@ -3994,7 +4009,8 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
                         "h1.citation__title", "h1[property='name']", "h1.article-header__title", "h1.article-title",
                         "section.article-section__abstract", "section#author-abstract", "div.article-tools__abstract",
                         "div.abstract", "#abstract", "div.abstract-group", "section[class*='abstract']",
-                        "h1.title", "h1[class*='article-title']", "p.articleBody_abstractText", "div.al-authors-list"
+                        "h1.title", "h1[class*='article-title']", "p.articleBody_abstractText", "div.al-authors-list",
+                        "h1 a[href*='viewcontent.cgi']", "p#title", "div#abstract p", "div#abstract"
                     ]
                     found = wait_for_captcha_and_content(current_driver, target_selectors, timeout=40)
                     if not found:
