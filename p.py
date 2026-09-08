@@ -1855,12 +1855,12 @@ def extract_cambridge_data(driver, item=None):
 
 def extract_rsc_data(driver, item=None):
     """
-    Extracts structured paper details from Royal Society of Chemistry / Silverchair (pubs.rsc.org / rsc.org).
+    Extracts structured paper details from Royal Society of Chemistry / American Chemical Society / Silverchair (pubs.rsc.org, pubs.acs.org).
     - Title: h1.wi-article-title, h1.article-title-main, h1[class*='article-title'], h1
-    - Authors: div.al-author-name a.linked-name, div.wi-authors a.linked-name, a.js-linked-name
+    - Authors: div.al-author-name a.linked-name, div.wi-authors a.linked-name, a.js-linked-name, div.al-authors-list div.al-author-name a
     - Publication Year / Date: span.article-date, meta citation_publication_date
-    - Abstract: p (within abstract container), section.abstract p, div.abstract p, div.capsule__column--p
-    - Fallback: Crossref DOI / Title resolution for RSC publications
+    - Abstract: p.articleBody_abstractText, div.article_abstract p, section.abstract p, div.abstract p, p
+    - Fallback: Crossref DOI / Title resolution for RSC/ACS publications
     """
     data = {}
 
@@ -1948,8 +1948,10 @@ def extract_rsc_data(driver, item=None):
     try:
         raw_text = ""
         for abs_sel in [
+            "p.articleBody_abstractText", "div.article_abstract p", "div.article_abstract",
             "section.abstract p", "div.abstract p", "section.abstract", "div.abstract",
-            "div[class*='abstract'] p", "div[class*='abstract']", "div.capsule__column--p p", "div.capsule__column--p"
+            "div[class*='abstract'] p", "div[class*='abstract']", "div.capsule__column--p p", "div.capsule__column--p",
+            "div.hlFld-Abstract p", "div.hlFld-Abstract"
         ]:
             elems = driver.find_elements(By.CSS_SELECTOR, abs_sel)
             if elems and any(e.text.strip() for e in elems):
@@ -1977,7 +1979,9 @@ def extract_rsc_data(driver, item=None):
 
     # 5. Crossref Fallback if blocked or missing fields
     title_bad = data.get("title", "").strip().lower() in [
-        "pubs.rsc.org", "rsc publishing", "royal society of chemistry", "just a moment...", "are you a robot", ""
+        "pubs.rsc.org", "rsc publishing", "royal society of chemistry",
+        "pubs.acs.org", "acs publications", "american chemical society",
+        "just a moment...", "are you a robot", ""
     ]
     if not data.get("authors") or title_bad or data.get("published_date") == "N/A" or data.get("abstract") in ["N/A", "", "Abstract"]:
         try:
@@ -3654,12 +3658,11 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
     results = []
     current_driver = None
     current_driver_type = None
-
     try:
         for item in link_items:
             url = item["link"]
             parsed_domain = urlparse(url).netloc.lower()
-            needs_captcha_humanoid = ("cell.com" in parsed_domain) or ("wiley.com" in parsed_domain) or ("sciencedirect.com" in parsed_domain) or ("tandfonline.com" in parsed_domain) or ("benthamdirect.com" in parsed_domain) or ("sagepub.com" in parsed_domain) or ("aip.org" in parsed_domain) or ("cambridge.org" in parsed_domain) or ("rsc.org" in parsed_domain) or ("emerald.com" in parsed_domain) or ("ascelibrary.org" in parsed_domain) or ("authorea.com" in parsed_domain) or ("medrxiv.org" in parsed_domain) or ("biorxiv.org" in parsed_domain) or ("twistjournal.net" in parsed_domain)
+            needs_captcha_humanoid = ("cell.com" in parsed_domain) or ("wiley.com" in parsed_domain) or ("sciencedirect.com" in parsed_domain) or ("tandfonline.com" in parsed_domain) or ("benthamdirect.com" in parsed_domain) or ("sagepub.com" in parsed_domain) or ("aip.org" in parsed_domain) or ("cambridge.org" in parsed_domain) or ("rsc.org" in parsed_domain) or ("acs.org" in parsed_domain) or ("emerald.com" in parsed_domain) or ("ascelibrary.org" in parsed_domain) or ("authorea.com" in parsed_domain) or ("medrxiv.org" in parsed_domain) or ("biorxiv.org" in parsed_domain) or ("twistjournal.net" in parsed_domain)
 
             required_type = "captcha_humanoid" if needs_captcha_humanoid else "lite"
             if current_driver_type != required_type:
@@ -3670,7 +3673,7 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
                         pass
                 
                 if required_type == "captcha_humanoid":
-                    print("[*] 🛡️ Initializing Undetected Humanoid Browser (Cell / Wiley / ScienceDirect / TandF / Cambridge / RSC / Emerald / ASCE / medRxiv Mode)...")
+                    print("[*] 🛡️ Initializing Undetected Humanoid Browser (Cell / Wiley / ScienceDirect / TandF / Cambridge / RSC / ACS / Emerald / ASCE / medRxiv Mode)...")
                     current_driver = create_humanoid_driver(headless=headless)
                 else:
                     print("[*] ⚡ Initializing Fast Lite Browser (Springer/Frontiers/MDPI/Nature Mode)...")
@@ -3698,7 +3701,7 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
                         "h1.citation__title", "h1[property='name']", "h1.article-header__title", "h1.article-title",
                         "section.article-section__abstract", "section#author-abstract", "div.article-tools__abstract",
                         "div.abstract", "#abstract", "div.abstract-group", "section[class*='abstract']",
-                        "h1.title", "h1[class*='article-title']"
+                        "h1.title", "h1[class*='article-title']", "p.articleBody_abstractText", "div.al-authors-list"
                     ]
                     found = wait_for_captcha_and_content(current_driver, target_selectors, timeout=40)
                     if not found:
@@ -3890,11 +3893,12 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
                     print(f"📅 Published Date : {scraped_data.get('published_date')}")
                     print(f"\n📖 Abstract (Formatted Plain Text):\n\n{scraped_data.get('abstract')}\n")
 
-                elif "rsc.org" in parsed_domain:
-                    print(f"[*] Royal Society of Chemistry Domain Detected -> Extracting RSC Article Elements...")
+                elif "rsc.org" in parsed_domain or "acs.org" in parsed_domain:
+                    source_label = "ACS Publications" if "acs.org" in parsed_domain else "Royal Society of Chemistry"
+                    print(f"[*] {source_label} Domain Detected -> Extracting Article Elements...")
                     scraped_data = extract_rsc_data(current_driver, item=item)
 
-                    print(f"\n--- [ Royal Society of Chemistry Extracted Data ] ---")
+                    print(f"\n--- [ {source_label} Extracted Data ] ---")
                     print(f"📌 Title          : {scraped_data.get('title')}")
                     print(f"👥 Author Names   : {', '.join(scraped_data.get('authors', []))}")
                     print(f"📅 Published Date : {scraped_data.get('published_date')}")
