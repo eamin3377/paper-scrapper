@@ -1564,28 +1564,33 @@ def extract_aipp_data(driver, item=None):
         data["abstract"] = "N/A"
 
     # 5. Crossref Fallback if blocked by Cloudflare or fields are empty
-    if not data.get("authors") or data.get("title") in ["pubs.aip.org", "Just a moment...", ""] or data.get("published_date") == "N/A":
+    title_bad = data.get("title", "").strip().lower() in ["pubs.aip.org", "just a moment...", "", "superconductivity"]
+    if not data.get("authors") or title_bad or data.get("published_date") == "N/A":
         try:
             doc_link = item.get("document_link", "") if isinstance(item, dict) else ""
             item_link = item.get("link", "") if isinstance(item, dict) else ""
-            target_str = f"{doc_link} {item_link} {driver.current_url or ''}"
+            cur_url = driver.current_url or ""
+            target_str = f"{doc_link} {item_link} {cur_url}"
             doi = None
             doi_match = re.search(r'10\.\d{4,9}/[-._;()/:A-Za-z0-9]+', target_str)
             if doi_match:
                 doi = doi_match.group(0).rstrip('/')
             
-            # If still not found, search page source or meta tags
+            # If not in target_str, parse standard AIP /article/ format: e.g. /139/2/023903/3377287
+            # AIP DOIs are generally 10.1063/5.XXXXXXX
             if not doi:
-                try:
-                    meta_doi = driver.find_element(By.CSS_SELECTOR, "meta[name='citation_doi'], meta[name='dc.Identifier'][scheme='doi']")
-                    doi = meta_doi.get_attribute("content")
-                except Exception:
-                    pass
+                for candidate_url in [item_link, cur_url]:
+                    art_match = re.search(r'/article/(?:doi/)?(10\.\d{4,9}/[^/?#]+)', candidate_url)
+                    if art_match:
+                        doi = art_match.group(1)
+                        break
 
-            if not doi and isinstance(item, dict) and item.get("title") and item.get("title") != "No Title":
+            # Search Crossref by paper title if available
+            cand_title = item.get("title") if isinstance(item, dict) else None
+            if not doi and cand_title and cand_title not in ["No Title", "Direct URL"]:
                 try:
                     import urllib.parse
-                    q = urllib.parse.quote_plus(item.get("title"))
+                    q = urllib.parse.quote_plus(cand_title)
                     import requests
                     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
                     cr_s = requests.get(f"https://api.crossref.org/works?query.title={q}&rows=1", headers=headers, timeout=8)
@@ -1593,6 +1598,20 @@ def extract_aipp_data(driver, item=None):
                         doi = cr_s.json()["message"]["items"][0].get("DOI")
                 except Exception:
                     pass
+
+            # Search Crossref by article ID if URL contains e.g. 3377287
+            if not doi:
+                for candidate_url in [item_link, cur_url]:
+                    id_match = re.search(r'/article/\d+/\d+/(\d+)/(\d+)', candidate_url)
+                    if id_match:
+                        try:
+                            import requests
+                            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+                            cr_s = requests.get(f"https://api.crossref.org/works?query.bibliographic={id_match.group(1)}+{id_match.group(2)}&rows=1", headers=headers, timeout=8)
+                            if cr_s.status_code == 200 and cr_s.json().get("message", {}).get("items"):
+                                doi = cr_s.json()["message"]["items"][0].get("DOI")
+                        except Exception:
+                            pass
 
             if doi:
                 doi = doi.rstrip('/')
@@ -1603,7 +1622,7 @@ def extract_aipp_data(driver, item=None):
                     msg = cr_resp.json().get("message", {})
                     if msg.get("title"):
                         clean_t = msg["title"][0] if isinstance(msg["title"], list) else str(msg["title"])
-                        if data.get("title") in ["pubs.aip.org", "Just a moment...", "", "Superconductivity"] or len(data.get("title", "")) < len(clean_t):
+                        if title_bad or len(data.get("title", "")) < len(clean_t):
                             data["title"] = clean_title_text(clean_t)
                     if not data.get("authors") and msg.get("author"):
                         cr_authors = []
@@ -1629,6 +1648,11 @@ def extract_aipp_data(driver, item=None):
                         data["abstract"] = format_abstract_text(clean_abs)
         except Exception:
             pass
+
+    # Safety fallback: if title is still the domain, use item title if provided
+    if data.get("title", "").strip().lower() in ["pubs.aip.org", "just a moment...", ""]:
+        if isinstance(item, dict) and item.get("title") and item.get("title") not in ["No Title", "Direct URL"]:
+            data["title"] = item.get("title")
 
     return data
 
