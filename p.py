@@ -3890,7 +3890,8 @@ def extract_biofuel_data(driver, item=None):
 
 def load_links_from_json(json_path):
     """
-    Reads a JSON file and extracts paper metadata.
+    Reads a JSON or text file and extracts paper metadata.
+    Strictly picks the HTML article 'link' and never takes 'documentLink' or links ending in .pdf.
     """
     if not os.path.exists(json_path):
         print(f"[!] File not found: {json_path}")
@@ -3904,25 +3905,48 @@ def load_links_from_json(json_path):
         if not content:
             return []
 
+        def is_pdf_url(url_str):
+            if not url_str or not isinstance(url_str, str):
+                return True
+            u_clean = url_str.strip().lower()
+            return u_clean.endswith(".pdf") or ".pdf?" in u_clean or "/content/pdf/" in u_clean
+
         def extract_item_info(idx, item):
-            if isinstance(item, dict) and "link" in item:
+            if isinstance(item, dict):
+                # Strictly take "link" - NEVER use "documentLink"
+                target_url = item.get("link")
+                if not target_url or not isinstance(target_url, str):
+                    return None
+                
+                target_url = target_url.strip()
+                # If target_url itself ends in .pdf, ignore it
+                if is_pdf_url(target_url):
+                    return None
+
                 return {
                     "index": idx,
                     "title": item.get("title", "No Title"),
-                    "link": item["link"],
-                    "document_link": item.get("documentLink", "N/A"),
+                    "link": target_url,
                     "authors": item.get("authors", "N/A"),
                     "source": item.get("source", "N/A"),
                     "year": item.get("year", "N/A"),
                     "citations": item.get("citations", "N/A")
                 }
+            elif isinstance(item, str):
+                s = item.strip()
+                if (s.startswith("http://") or s.startswith("https://")) and not is_pdf_url(s):
+                    return {
+                        "index": idx,
+                        "title": "Direct URL",
+                        "link": s
+                    }
             return None
 
         try:
             data = json.loads(content)
             if isinstance(data, list):
                 for idx, item in enumerate(data):
-                    info = extract_item_info(idx, item)
+                    info = extract_item_info(len(links), item)
                     if info:
                         links.append(info)
             elif isinstance(data, dict):
@@ -3930,16 +3954,32 @@ def load_links_from_json(json_path):
                 if info:
                     links.append(info)
         except json.JSONDecodeError:
+            # Handle JSON Lines or raw text file lines
             for idx, line in enumerate(content.splitlines()):
                 line = line.strip()
                 if line:
                     try:
                         item = json.loads(line)
-                        info = extract_item_info(idx, item)
+                        info = extract_item_info(len(links), item)
                         if info:
                             links.append(info)
                     except Exception:
-                        pass
+                        # Raw line might be a regex for "link": "http..." or direct URL
+                        match = re.search(r'"link"\s*:\s*"([^"]+)"', line)
+                        if match:
+                            url_val = match.group(1).strip()
+                            if not is_pdf_url(url_val):
+                                links.append({
+                                    "index": len(links),
+                                    "title": "Direct URL",
+                                    "link": url_val
+                                })
+                        elif (line.startswith("http://") or line.startswith("https://")) and not is_pdf_url(line):
+                            links.append({
+                                "index": len(links),
+                                "title": "Direct URL",
+                                "link": line
+                            })
 
         return links
     except Exception as e:
