@@ -39,8 +39,6 @@ def create_lite_driver(headless=False):
     """
     from selenium import webdriver
     from selenium.webdriver.chrome.options import Options
-    from selenium.webdriver.chrome.service import Service
-    from webdriver_manager.chrome import ChromeDriverManager
 
     options = Options()
     if headless:
@@ -60,11 +58,23 @@ def create_lite_driver(headless=False):
     }
     options.add_experimental_option("prefs", prefs)
 
+    user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
+    options.add_argument(f"user-agent={user_agent}")
+    options.add_argument("--disable-blink-features=AutomationControlled")
+    options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    options.add_experimental_option("useAutomationExtension", False)
+
     options.page_load_strategy = 'eager'
     options.add_argument("--window-size=1280,800")
 
-    service = Service(ChromeDriverManager().install())
-    driver = webdriver.Chrome(service=service, options=options)
+    try:
+        from selenium.webdriver.chrome.service import Service
+        from webdriver_manager.chrome import ChromeDriverManager
+        service = Service(ChromeDriverManager().install())
+        driver = webdriver.Chrome(service=service, options=options)
+    except Exception:
+        # Selenium 4.6+ includes native Selenium Manager which handles chromedriver automatically
+        driver = webdriver.Chrome(options=options)
     return driver
 
 def create_humanoid_driver(headless=False):
