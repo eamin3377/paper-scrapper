@@ -4169,7 +4169,24 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
             print(f"[+] Target URL: {url}")
             print(f"------------------------------------------------------------------")
             
-            # Check if this is a direct PDF link
+            # 1. Guard against non-HTTP or "N/A" links
+            if not url or not (url.startswith("http://") or url.startswith("https://")):
+                print(f"[!] Target URL is not a valid web URL ({url}). Saving to CSV and moving to next link...")
+                fallback_data = {
+                    "title": item.get("title") if (item.get("title") and item.get("title") != "No Title") else url,
+                    "authors": [item.get("authors")] if (item.get("authors") and item.get("authors") != "N/A") else [],
+                    "published_date": str(item.get("year")) if (item.get("year") and item.get("year") != "N/A") else "N/A",
+                    "abstract": "N/A"
+                }
+                append_paper_to_csv(sl_no, url, fallback_data)
+                results.append({
+                    "url": url,
+                    "scraped_data": fallback_data,
+                    "status": "skipped"
+                })
+                continue
+
+            # 2. Check if this is a direct PDF link
             url_clean = url.strip().lower()
             is_pdf = url_clean.endswith(".pdf") or ".pdf?" in url_clean or "/content/pdf/" in url_clean or "/files/rs-" in url_clean
 
