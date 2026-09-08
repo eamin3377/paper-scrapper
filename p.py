@@ -1951,12 +1951,22 @@ def extract_rsc_data(driver, item=None):
             "p.articleBody_abstractText", "div.article_abstract p", "div.article_abstract",
             "section.abstract p", "div.abstract p", "section.abstract", "div.abstract",
             "div[class*='abstract'] p", "div[class*='abstract']", "div.capsule__column--p p", "div.capsule__column--p",
-            "div.hlFld-Abstract p", "div.hlFld-Abstract"
+            "div.hlFld-Abstract p", "div.hlFld-Abstract", "article p", "main p"
         ]:
             elems = driver.find_elements(By.CSS_SELECTOR, abs_sel)
-            if elems and any(e.text.strip() for e in elems):
-                raw_text = "\n\n".join([e.text.strip() for e in elems if e.text.strip()])
+            # Find the element with substantial text (at least 60 characters)
+            valid_texts = [e.text.strip() for e in elems if len(e.text.strip()) >= 60]
+            if valid_texts:
+                raw_text = "\n\n".join(valid_texts)
                 break
+
+        # Fallback to general paragraph scan if not found
+        if not raw_text or len(raw_text) < 40:
+            for p in driver.find_elements(By.TAG_NAME, "p"):
+                t = p.text.strip()
+                if len(t) > 100 and not any(skip in t.lower() for skip in ["cookie", "terms of use", "privacy policy", "rights reserved"]):
+                    raw_text = t
+                    break
 
         if not raw_text:
             try:
@@ -1964,20 +1974,24 @@ def extract_rsc_data(driver, item=None):
                     By.CSS_SELECTOR,
                     "meta[name='citation_abstract'], meta[name='description'], meta[property='og:description']"
                 )
-                raw_text = meta_abs.get_attribute("content") or ""
+                meta_content = meta_abs.get_attribute("content") or ""
+                if len(meta_content.strip()) > 30 and "article published in" not in meta_content.lower():
+                    raw_text = meta_content
             except Exception:
                 pass
 
-        if "Abstract" in raw_text:
-            raw_text = raw_text[raw_text.find("Abstract"):]
+        if raw_text:
+            if "Abstract" in raw_text:
+                raw_text = raw_text[raw_text.find("Abstract"):]
+            else:
+                raw_text = "Abstract\n\n" + raw_text
+            data["abstract"] = format_abstract_text(raw_text)
         else:
-            raw_text = "Abstract\n\n" + raw_text
-
-        data["abstract"] = format_abstract_text(raw_text)
+            data["abstract"] = "N/A"
     except Exception:
         data["abstract"] = "N/A"
 
-    # 5. Crossref Fallback if blocked or missing fields
+    # 5. Crossref / OpenAlex Fallback if blocked or missing fields
     title_bad = data.get("title", "").strip().lower() in [
         "pubs.rsc.org", "rsc publishing", "royal society of chemistry",
         "pubs.acs.org", "acs publications", "american chemical society",
@@ -2041,6 +2055,23 @@ def extract_rsc_data(driver, item=None):
                         else:
                             clean_abs = "Abstract\n\n" + clean_abs
                         data["abstract"] = format_abstract_text(clean_abs)
+
+                # Fallback to OpenAlex if abstract is still missing (common for ACS / paywalled preprints)
+                current_abs = data.get("abstract", "").strip()
+                if current_abs in ["N/A", "", "Abstract"] or len(current_abs) <= 15:
+                    try:
+                        oa_url = f"https://api.openalex.org/works/https://doi.org/{doi}"
+                        oa_resp = requests.get(oa_url, headers=headers, timeout=8)
+                        if oa_resp.status_code == 200:
+                            oa_data = oa_resp.json()
+                            inv = oa_data.get("abstract_inverted_index")
+                            if inv:
+                                words = sorted([(pos, w) for w, poses in inv.items() for pos in poses])
+                                reconstructed_abs = " ".join(w for _, w in words).strip()
+                                if reconstructed_abs:
+                                    data["abstract"] = format_abstract_text("Abstract\n\n" + reconstructed_abs)
+                    except Exception:
+                        pass
         except Exception:
             pass
 
