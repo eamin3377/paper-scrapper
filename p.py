@@ -3981,11 +3981,11 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
                         pass
                 
                 if required_type == "captcha_humanoid":
-                    print("[*] 🛡️ Initializing Undetected Humanoid Browser (Cell / Wiley / ScienceDirect / TandF / Cambridge / RSC / ACS / Emerald / ASCE / medRxiv Mode)...")
-                    current_driver = create_humanoid_driver(headless=headless)
+                    print("[*] 🛡️ Initializing Undetected Humanoid Browser (Visible Mode for Cell / Wiley / ScienceDirect / RSC / ACS / Cambridge / Bentham)...")
+                    current_driver = create_humanoid_driver(headless=False)
                 else:
-                    print("[*] ⚡ Initializing Fast Lite Browser (Springer/Frontiers/MDPI/Nature Mode)...")
-                    current_driver = create_lite_driver(headless=headless)
+                    print("[*] ⚡ Initializing Fast Lite Browser (Silent Headless Mode: Springer / Frontiers / MDPI / Nature / De Gruyter)...")
+                    current_driver = create_lite_driver(headless=True)
                 
                 current_driver_type = required_type
 
