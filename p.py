@@ -1030,6 +1030,103 @@ def extract_ieeexplore_data(driver):
 
     return data
 
+def extract_plos_data(driver):
+    """
+    Extracts structured paper details from PLOS journals (journals.plos.org).
+    - Title: h1#artTitle
+    - Authors: ul#author-list li a.author-name
+    - Publication Year / Date: li#artPubDate, meta citation_date
+    - Abstract: div.abstract div.abstract-content, div.abstract
+    """
+    data = {}
+
+    # 1. Title
+    try:
+        title_elem = driver.find_element(By.CSS_SELECTOR, "h1#artTitle, h1[class*='artTitle'], h1")
+        raw_title = title_elem.text.strip()
+        # Clean any XML processing instructions like <!--?xml ...--> or tags
+        raw_title = re.sub(r'<\?[^>]*\?>', '', raw_title).strip()
+        data["title"] = clean_title_text(raw_title)
+    except Exception:
+        data["title"] = driver.title
+
+    # 2. Authors
+    try:
+        author_names = []
+        author_elements = driver.find_elements(
+            By.CSS_SELECTOR,
+            "ul#author-list li a.author-name, ul.author-list li a.author-name"
+        )
+        for elem in author_elements:
+            name = elem.text.strip().rstrip(',').strip()
+            if name and name not in author_names:
+                author_names.append(name)
+
+        if not author_names:
+            meta_authors = driver.find_elements(By.CSS_SELECTOR, "meta[name='citation_author']")
+            for ma in meta_authors:
+                content = ma.get_attribute("content")
+                if content and content.strip() not in author_names:
+                    author_names.append(content.strip())
+
+        data["authors"] = author_names
+    except Exception:
+        data["authors"] = []
+
+    # 3. Publication Year / Date
+    try:
+        date_str = "N/A"
+        try:
+            pub_elem = driver.find_element(By.CSS_SELECTOR, "li#artPubDate, li[id*='artPubDate']")
+            text = pub_elem.text.strip()
+            # E.g. 'Published: October 7, 2025' -> extract 'October 7, 2025' or '2025'
+            clean_date = re.sub(r'^(?:Published:\s*)', '', text, flags=re.IGNORECASE).strip()
+            match = re.search(r'\b(19\d\d|20\d\d)\b', clean_date)
+            date_str = match.group(1) if match else clean_date
+        except Exception:
+            pass
+
+        if date_str == "N/A":
+            try:
+                meta_date = driver.find_element(By.CSS_SELECTOR, "meta[name='citation_date'], meta[name='citation_publication_date']")
+                date_str = meta_date.get_attribute("content")
+            except Exception:
+                pass
+
+        data["published_date"] = date_str
+    except Exception:
+        data["published_date"] = "N/A"
+
+    # 4. Abstract
+    try:
+        raw_text = ""
+        try:
+            abs_elem = driver.find_element(
+                By.CSS_SELECTOR,
+                "div.abstract-content, div.abstract, div[class*='abstract-content']"
+            )
+            raw_text = abs_elem.text.strip()
+        except Exception:
+            pass
+
+        if not raw_text:
+            try:
+                meta_abs = driver.find_element(By.CSS_SELECTOR, "meta[name='citation_abstract'], meta[property='og:description']")
+                raw_text = meta_abs.get_attribute("content") or ""
+            except Exception:
+                pass
+
+        if "Abstract" in raw_text:
+            raw_text = raw_text[raw_text.find("Abstract"):]
+        else:
+            raw_text = "Abstract\n\n" + raw_text
+
+        data["abstract"] = format_abstract_text(raw_text)
+    except Exception:
+        data["abstract"] = "N/A"
+
+    return data
+
 def load_links_from_json(json_path):
     """
     Reads a JSON file and extracts paper metadata.
@@ -1158,6 +1255,7 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
                 else:
                     # For fast lite sites (Springer, MDPI, Frontiers, Nature, De Gruyter Brill), wait up to 6 seconds for title/body element
                     fast_selectors = [
+                        "h1#artTitle", "div.abstract-content",
                         "h1.title-dgb", "h1[class*='title-dgb']", "h1.c-article-title",
                         "h1[data-test='article-title']", "h1.title", "h1[itemprop='name']",
                         "h1.ArticleDetailsV4__main__title", "h1.document-title", "span.abstract-text-content", "h1"
@@ -1280,6 +1378,16 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
                     scraped_data = extract_ieeexplore_data(current_driver)
 
                     print(f"\n--- [ IEEE Xplore Extracted Data ] ---")
+                    print(f"📌 Title          : {scraped_data.get('title')}")
+                    print(f"👥 Author Names   : {', '.join(scraped_data.get('authors', []))}")
+                    print(f"📅 Published Date : {scraped_data.get('published_date')}")
+                    print(f"\n📖 Abstract (Formatted Plain Text):\n\n{scraped_data.get('abstract')}\n")
+
+                elif "plos.org" in parsed_domain:
+                    print(f"[*] PLOS Domain Detected -> Extracting PLOS Article Elements...")
+                    scraped_data = extract_plos_data(current_driver)
+
+                    print(f"\n--- [ PLOS Extracted Data ] ---")
                     print(f"📌 Title          : {scraped_data.get('title')}")
                     print(f"👥 Author Names   : {', '.join(scraped_data.get('authors', []))}")
                     print(f"📅 Published Date : {scraped_data.get('published_date')}")
