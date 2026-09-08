@@ -1127,7 +1127,7 @@ def extract_plos_data(driver):
 
     return data
 
-def extract_bentham_data(driver):
+def extract_bentham_data(driver, item=None):
     """
     Extracts structured paper details from Bentham Science / Bentham Direct (benthamdirect.com).
     - Title: h1.h2, h1[class*='h2'], h1
@@ -1272,7 +1272,7 @@ def extract_bentham_data(driver):
 
     return data
 
-def extract_sage_data(driver):
+def extract_sage_data(driver, item=None):
     """
     Extracts structured paper details from SAGE Journals (journals.sagepub.com / sagepub.com).
     - Title: h1[property='name'], h1.article-header__title, h1
@@ -1436,6 +1436,182 @@ def extract_sage_data(driver):
 
     return data
 
+def extract_aipp_data(driver, item=None):
+    """
+    Extracts structured paper details from AIP Publishing / Silverchair (pubs.aip.org).
+    - Title: h1.wi-article-title, h1.article-title-main, h1
+    - Authors: div.al-author-name a.linked-name, div.wi-authors a.linked-name
+    - Publication Year / Date: span.article-date, meta citation_publication_date
+    - Abstract: section.abstract p, div.abstract p, p (containing abstract text)
+    """
+    data = {}
+
+    # 1. Title
+    try:
+        title_elem = driver.find_element(
+            By.CSS_SELECTOR,
+            "h1.wi-article-title, h1.article-title-main, h1[class*='article-title'], h1"
+        )
+        raw_title = title_elem.text.strip()
+        raw_title = re.sub(r'(?i)\bOpen Access\b', '', raw_title).strip()
+        data["title"] = clean_title_text(raw_title)
+    except Exception:
+        data["title"] = driver.title
+
+    # 2. Authors
+    try:
+        author_names = []
+        author_elements = driver.find_elements(
+            By.CSS_SELECTOR,
+            "div.al-author-name a.linked-name, div.wi-authors a.linked-name, a.js-linked-name, div.al-authors-list div.al-author-name a"
+        )
+        for elem in author_elements:
+            name = elem.text.strip()
+            if name and name not in author_names and len(name) > 2 and "\n" not in name:
+                author_names.append(name)
+
+        if not author_names:
+            meta_authors = driver.find_elements(By.CSS_SELECTOR, "meta[name='citation_author']")
+            for ma in meta_authors:
+                content = ma.get_attribute("content")
+                if content and content.strip() not in author_names:
+                    author_names.append(content.strip())
+
+        data["authors"] = author_names
+    except Exception:
+        data["authors"] = []
+
+    # 3. Publication Year / Date
+    try:
+        date_str = "N/A"
+        try:
+            date_elem = driver.find_element(
+                By.CSS_SELECTOR,
+                "span.article-date, div.article-date, span[class*='article-date']"
+            )
+            text = date_elem.text.strip()
+            match = re.search(r'\b(19\d\d|20\d\d)\b', text)
+            date_str = match.group(1) if match else text
+        except Exception:
+            pass
+
+        if date_str == "N/A":
+            try:
+                meta_date = driver.find_element(
+                    By.CSS_SELECTOR,
+                    "meta[name='citation_publication_date'], meta[name='citation_date'], meta[name='citation_online_date']"
+                )
+                val = meta_date.get_attribute("content")
+                if val:
+                    match = re.search(r'\b(19\d\d|20\d\d)\b', val)
+                    date_str = match.group(1) if match else val.strip()
+            except Exception:
+                pass
+
+        data["published_date"] = date_str
+    except Exception:
+        data["published_date"] = "N/A"
+
+    # 4. Abstract
+    try:
+        raw_text = ""
+        try:
+            abs_elem = driver.find_element(
+                By.CSS_SELECTOR,
+                "section.abstract p, div.abstract p, section.abstract, div.abstract, div[class*='abstract'] p"
+            )
+            raw_text = abs_elem.text.strip()
+        except Exception:
+            pass
+
+        if not raw_text:
+            try:
+                meta_abs = driver.find_element(
+                    By.CSS_SELECTOR,
+                    "meta[name='citation_abstract'], meta[name='description'], meta[property='og:description']"
+                )
+                raw_text = meta_abs.get_attribute("content") or ""
+            except Exception:
+                pass
+
+        if "Abstract" in raw_text:
+            raw_text = raw_text[raw_text.find("Abstract"):]
+        else:
+            raw_text = "Abstract\n\n" + raw_text
+
+        data["abstract"] = format_abstract_text(raw_text)
+    except Exception:
+        data["abstract"] = "N/A"
+
+    # 5. Crossref Fallback if blocked by Cloudflare or fields are empty
+    if not data.get("authors") or data.get("title") in ["pubs.aip.org", "Just a moment...", ""] or data.get("published_date") == "N/A":
+        try:
+            doc_link = item.get("document_link", "") if isinstance(item, dict) else ""
+            item_link = item.get("link", "") if isinstance(item, dict) else ""
+            target_str = f"{doc_link} {item_link} {driver.current_url or ''}"
+            doi = None
+            doi_match = re.search(r'10\.\d{4,9}/[-._;()/:A-Za-z0-9]+', target_str)
+            if doi_match:
+                doi = doi_match.group(0).rstrip('/')
+            
+            # If still not found, search page source or meta tags
+            if not doi:
+                try:
+                    meta_doi = driver.find_element(By.CSS_SELECTOR, "meta[name='citation_doi'], meta[name='dc.Identifier'][scheme='doi']")
+                    doi = meta_doi.get_attribute("content")
+                except Exception:
+                    pass
+
+            if not doi and isinstance(item, dict) and item.get("title") and item.get("title") != "No Title":
+                try:
+                    import urllib.parse
+                    q = urllib.parse.quote_plus(item.get("title"))
+                    import requests
+                    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+                    cr_s = requests.get(f"https://api.crossref.org/works?query.title={q}&rows=1", headers=headers, timeout=8)
+                    if cr_s.status_code == 200 and cr_s.json().get("message", {}).get("items"):
+                        doi = cr_s.json()["message"]["items"][0].get("DOI")
+                except Exception:
+                    pass
+
+            if doi:
+                doi = doi.rstrip('/')
+                import requests
+                headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+                cr_resp = requests.get(f"https://api.crossref.org/works/{doi}", headers=headers, timeout=8)
+                if cr_resp.status_code == 200:
+                    msg = cr_resp.json().get("message", {})
+                    if msg.get("title"):
+                        clean_t = msg["title"][0] if isinstance(msg["title"], list) else str(msg["title"])
+                        if data.get("title") in ["pubs.aip.org", "Just a moment...", "", "Superconductivity"] or len(data.get("title", "")) < len(clean_t):
+                            data["title"] = clean_title_text(clean_t)
+                    if not data.get("authors") and msg.get("author"):
+                        cr_authors = []
+                        for a in msg["author"]:
+                            g = a.get("given", "").strip()
+                            f = a.get("family", "").strip()
+                            name = f"{g} {f}".strip() if g and f else (f or g)
+                            if name and name not in cr_authors:
+                                cr_authors.append(name)
+                        if cr_authors:
+                            data["authors"] = cr_authors
+                    if data.get("published_date") in ["N/A", "None", None]:
+                        date_parts = msg.get("published-online", {}).get("date-parts") or msg.get("published-print", {}).get("date-parts") or msg.get("issued", {}).get("date-parts")
+                        if date_parts and date_parts[0]:
+                            data["published_date"] = str(date_parts[0][0])
+                    current_abs = data.get("abstract", "").strip()
+                    if (current_abs in ["N/A", "", "Abstract"] or len(current_abs) <= 15) and msg.get("abstract"):
+                        clean_abs = re.sub(r'<[^>]+>', '', msg["abstract"]).strip()
+                        if "Abstract" in clean_abs:
+                            clean_abs = clean_abs[clean_abs.find("Abstract"):]
+                        else:
+                            clean_abs = "Abstract\n\n" + clean_abs
+                        data["abstract"] = format_abstract_text(clean_abs)
+        except Exception:
+            pass
+
+    return data
+
 def load_links_from_json(json_path):
     """
     Reads a JSON file and extracts paper metadata.
@@ -1520,7 +1696,7 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
         for item in link_items:
             url = item["link"]
             parsed_domain = urlparse(url).netloc.lower()
-            needs_captcha_humanoid = ("cell.com" in parsed_domain) or ("wiley.com" in parsed_domain) or ("sciencedirect.com" in parsed_domain) or ("tandfonline.com" in parsed_domain) or ("benthamdirect.com" in parsed_domain) or ("sagepub.com" in parsed_domain)
+            needs_captcha_humanoid = ("cell.com" in parsed_domain) or ("wiley.com" in parsed_domain) or ("sciencedirect.com" in parsed_domain) or ("tandfonline.com" in parsed_domain) or ("benthamdirect.com" in parsed_domain) or ("sagepub.com" in parsed_domain) or ("aip.org" in parsed_domain)
 
             required_type = "captcha_humanoid" if needs_captcha_humanoid else "lite"
             if current_driver_type != required_type:
@@ -1551,6 +1727,7 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
                 if needs_captcha_humanoid:
                     # Poll for target title/abstract elements after manual user resolution / Cloudflare auto-check
                     target_selectors = [
+                        "h1.wi-article-title", "h1.article-title-main",
                         "h1.h2", "h1[class*='h2']",
                         "span.NLM_article-title", "div.hlFld-Abstract", "div#abstractId1",
                         "span.title-text", "h1.title-text", "div.author-group", "div#abs0001", "div#abss0001",
@@ -1705,7 +1882,7 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
 
                 elif "benthamdirect.com" in parsed_domain or "benthamscience.com" in parsed_domain:
                     print(f"[*] Bentham Science Domain Detected -> Extracting Bentham Article Elements...")
-                    scraped_data = extract_bentham_data(current_driver)
+                    scraped_data = extract_bentham_data(current_driver, item=item)
 
                     print(f"\n--- [ Bentham Science Extracted Data ] ---")
                     print(f"📌 Title          : {scraped_data.get('title')}")
@@ -1715,9 +1892,19 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
 
                 elif "sagepub.com" in parsed_domain:
                     print(f"[*] SAGE Journals Domain Detected -> Extracting SAGE Article Elements...")
-                    scraped_data = extract_sage_data(current_driver)
+                    scraped_data = extract_sage_data(current_driver, item=item)
 
                     print(f"\n--- [ SAGE Journals Extracted Data ] ---")
+                    print(f"📌 Title          : {scraped_data.get('title')}")
+                    print(f"👥 Author Names   : {', '.join(scraped_data.get('authors', []))}")
+                    print(f"📅 Published Date : {scraped_data.get('published_date')}")
+                    print(f"\n📖 Abstract (Formatted Plain Text):\n\n{scraped_data.get('abstract')}\n")
+
+                elif "aip.org" in parsed_domain:
+                    print(f"[*] AIP Publishing Domain Detected -> Extracting AIP Article Elements...")
+                    scraped_data = extract_aipp_data(current_driver, item=item)
+
+                    print(f"\n--- [ AIP Publishing Extracted Data ] ---")
                     print(f"📌 Title          : {scraped_data.get('title')}")
                     print(f"👥 Author Names   : {', '.join(scraped_data.get('authors', []))}")
                     print(f"📅 Published Date : {scraped_data.get('published_date')}")
