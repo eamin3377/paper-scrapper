@@ -1881,15 +1881,43 @@ def extract_rsc_data(driver, item=None):
     # 2. Authors
     try:
         author_names = []
-        author_elements = driver.find_elements(
-            By.CSS_SELECTOR,
-            "div.al-author-name a.linked-name, div.wi-authors a.linked-name, a.js-linked-name, div.al-authors-list div.al-author-name a"
-        )
-        for elem in author_elements:
-            name = elem.text.strip()
-            name = re.sub(r'[†*‡§\d]', '', name).strip()
-            if name and name not in author_names and len(name) > 2 and "\n" not in name:
-                author_names.append(name)
+        author_blocks = driver.find_elements(By.CSS_SELECTOR, "div.al-authors-list div.al-author-name, div.wi-authors div.al-author-name")
+        if author_blocks:
+            for block in author_blocks:
+                try:
+                    # Extract the clean name from the author link or info-card-name
+                    name_text = driver.execute_script("""
+                        var clone = arguments[0].cloneNode(true);
+                        // Remove modal panels, footnotes, screenreader, and icons
+                        var junk = clone.querySelectorAll('.al-author-info-wrap, .info-card-footnote, .screenreader-text, i, span.xref-corresp, span.xref-author-notes, .al-orcid-info-wrap, .al-author-delim');
+                        junk.forEach(j => j.remove());
+                        var link = clone.querySelector('a.linked-name, a.js-linked-name, a');
+                        if (link) {
+                            return link.innerText || link.textContent;
+                        }
+                        return clone.innerText || clone.textContent;
+                    """, block)
+                    if name_text:
+                        name = name_text.strip()
+                        name = re.sub(r'[\r\n\t]+', ' ', name)
+                        name = re.sub(r'[†*‡§\d]', '', name).strip()
+                        name = re.sub(r'\s+', ' ', name).strip()
+                        if name and name not in author_names and len(name) > 2 and not name.lower().startswith("close"):
+                            author_names.append(name)
+                except Exception:
+                    pass
+
+        if not author_names:
+            author_elements = driver.find_elements(
+                By.CSS_SELECTOR,
+                "div.al-author-name a.linked-name, div.wi-authors a.linked-name, a.js-linked-name, div.al-authors-list div.al-author-name a"
+            )
+            for elem in author_elements:
+                name = elem.text.strip()
+                name = re.sub(r'[\r\n\t]+', ' ', name)
+                name = re.sub(r'[†*‡§\d]', '', name).strip()
+                if name and name not in author_names and len(name) > 2 and not name.lower().startswith("close"):
+                    author_names.append(name)
 
         if not author_names:
             meta_authors = driver.find_elements(By.CSS_SELECTOR, "meta[name='citation_author']")
