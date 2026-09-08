@@ -3001,6 +3001,7 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
                 if needs_captcha_humanoid:
                     # Poll for target title/abstract elements after manual user resolution / Cloudflare auto-check
                     target_selectors = [
+                        "h1.highwire-cite-title", "div.section.abstract", "div#abstract-1",
                         "h1.wi-article-title", "h1.article-title-main",
                         "h1.h2", "h1[class*='h2']",
                         "span.NLM_article-title", "div.hlFld-Abstract", "div#abstractId1",
