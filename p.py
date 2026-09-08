@@ -114,17 +114,20 @@ def create_humanoid_driver(headless=False):
 
     return create_lite_driver(headless=headless)
 
-def wait_for_captcha_and_content(driver, selectors, timeout=15):
+def wait_for_captcha_and_content(driver, selectors, timeout=30):
     """
-    Polls the DOM rapidly. As soon as any target article element appears after CAPTCHA,
-    and page title is no longer 'Are you a robot?' or Cloudflare check, returns True immediately.
+    Polls the DOM naturally. If Cloudflare Turnstile or security challenge is active,
+    it stays completely quiet and idle, allowing the human to click the box without
+    any synthetic actions interfering with the verification.
+    As soon as verification clears and article content appears, returns True.
     """
     start_time = time.time()
     while time.time() - start_time < timeout:
         try:
             title = driver.title.lower()
+            # If still on Cloudflare challenge screen, do not touch or scroll
             if "are you a robot" in title or "just a moment" in title or "cloudflare" in title or "attention required" in title:
-                time.sleep(0.5)
+                time.sleep(1.0)
                 continue
 
             for selector in selectors:
@@ -133,23 +136,23 @@ def wait_for_captcha_and_content(driver, selectors, timeout=15):
                     return True
         except Exception:
             pass
-        time.sleep(0.4)
+        time.sleep(0.8)
     return False
 
 def humanoid_mouse_and_scroll(driver):
     """
-    Simulates gentle human-like mouse movements and natural scrolling for CAPTCHA protected domains.
+    Gently scrolls only if we are already on an article page, never while on a verification challenge.
     """
     try:
-        actions = ActionChains(driver)
-        actions.move_by_offset(random.randint(10, 50), random.randint(10, 50)).perform()
-        time.sleep(random.uniform(0.5, 1.2))
-        
+        title = driver.title.lower()
+        if "are you a robot" in title or "just a moment" in title or "cloudflare" in title or "attention required" in title:
+            return
+
         total_height = int(driver.execute_script("return document.body.scrollHeight"))
         if total_height > 500:
-            scroll_target = random.randint(200, min(800, total_height))
+            scroll_target = random.randint(200, min(600, total_height))
             driver.execute_script(f"window.scrollTo({{top: {scroll_target}, behavior: 'smooth'}});")
-            time.sleep(random.uniform(1.0, 1.5))
+            time.sleep(random.uniform(0.6, 1.0))
             driver.execute_script("window.scrollTo({top: 0, behavior: 'smooth'});")
     except Exception:
         pass
@@ -3981,10 +3984,9 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
                         "h1.title", "h1[class*='article-title']", "p.articleBody_abstractText", "div.al-authors-list",
                         "h1 a[href*='viewcontent.cgi']", "p#title", "div#abstract p", "div#abstract"
                     ]
-                    found = wait_for_captcha_and_content(current_driver, target_selectors, timeout=12)
-                    if not found:
+                    found = wait_for_captcha_and_content(current_driver, target_selectors, timeout=35)
+                    if found:
                         humanoid_mouse_and_scroll(current_driver)
-                        wait_for_captcha_and_content(current_driver, target_selectors, timeout=8)
                 else:
                     # For fast lite sites (Springer, MDPI, Frontiers, Nature, De Gruyter Brill), wait up to 6 seconds for title/body element
                     fast_selectors = [
