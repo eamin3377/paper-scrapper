@@ -4089,11 +4089,60 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
     print(f"[*] STARTING MULTI-DOMAIN BROWSER SCRAPPER (Target Links: {len(link_items)})")
     print(f"==================================================================\n")
 
+    csv_filename = "scraped_papers.csv"
+    fieldnames = ["SL NO.", "Title", "Authors", "Published Year", "Abstract"]
+
+    def append_paper_to_csv(sl_no, url_target, data_dict):
+        try:
+            raw_title = data_dict.get("title") if data_dict else None
+            # If title is missing, empty, or error, fallback to placing the URL in Title column
+            if not raw_title or not str(raw_title).strip() or str(raw_title).strip().lower() in ["n/a", "none", "no title"]:
+                final_title = url_target
+            else:
+                final_title = str(raw_title).strip()
+
+            raw_authors = data_dict.get("authors") if data_dict else None
+            if isinstance(raw_authors, list):
+                authors = ", ".join(str(a).strip() for a in raw_authors if str(a).strip())
+            elif raw_authors:
+                authors = str(raw_authors).strip()
+            else:
+                authors = "N/A"
+
+            pub_year = data_dict.get("published_date") or data_dict.get("year") or "N/A" if data_dict else "N/A"
+            pub_year = str(pub_year).strip()
+
+            abstract = data_dict.get("abstract") or "N/A" if data_dict else "N/A"
+            abstract = str(abstract).strip()
+
+            with open(csv_filename, mode="a", newline="", encoding="utf-8-sig") as f:
+                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                writer.writerow({
+                    "SL NO.": sl_no,
+                    "Title": final_title,
+                    "Authors": authors,
+                    "Published Year": pub_year,
+                    "Abstract": abstract
+                })
+                f.flush()
+            print(f"[+] 💾 Saved item [{sl_no}/{total}] to {csv_filename}")
+        except Exception as e:
+            print(f"[!] Error appending to CSV: {e}")
+
+    # Initialize / overwrite CSV header at the beginning of the run
+    try:
+        with open(csv_filename, mode="w", newline="", encoding="utf-8-sig") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+    except Exception as e:
+        print(f"[!] Warning: Could not create CSV header: {e}")
+
     results = []
     current_driver = None
     current_driver_type = None
     try:
         for item in link_items:
+            sl_no = len(results) + 1
             url = item["link"]
             parsed_domain = urlparse(url).netloc.lower()
             needs_captcha_humanoid = ("cell.com" in parsed_domain) or ("wiley.com" in parsed_domain) or ("sciencedirect.com" in parsed_domain) or ("tandfonline.com" in parsed_domain) or ("benthamdirect.com" in parsed_domain) or ("sagepub.com" in parsed_domain) or ("aip.org" in parsed_domain) or ("cambridge.org" in parsed_domain) or ("rsc.org" in parsed_domain) or ("acs.org" in parsed_domain) or ("emerald.com" in parsed_domain) or ("ascelibrary.org" in parsed_domain) or ("authorea.com" in parsed_domain) or ("medrxiv.org" in parsed_domain) or ("biorxiv.org" in parsed_domain) or ("twistjournal.net" in parsed_domain) or ("uokerbala.edu.iq" in parsed_domain) or ("kijoms" in parsed_domain)
@@ -4138,6 +4187,7 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
                     print(f"📅 Published Date : {scraped_data.get('published_date')}")
                     print(f"\n📖 Abstract (Formatted Plain Text):\n\n{scraped_data.get('abstract')}\n")
 
+                    append_paper_to_csv(sl_no, url, scraped_data)
                     results.append({
                         "url": url,
                         "scraped_data": scraped_data,
@@ -4145,6 +4195,7 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
                     })
                 except Exception as pdf_ex:
                     print(f"[!] Failed to parse PDF {url}: {pdf_ex}")
+                    append_paper_to_csv(sl_no, url, {})
                     results.append({
                         "url": url,
                         "status": "failed",
@@ -4459,6 +4510,7 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
                     print(f"[+] Page Title : {current_driver.title}")
                     print(f"[+] Final URL  : {current_driver.current_url}")
 
+                append_paper_to_csv(sl_no, url, scraped_data)
                 results.append({
                     "url": url,
                     "scraped_data": scraped_data,
@@ -4467,6 +4519,7 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
 
             except Exception as ex:
                 print(f"[!] Failed to load {url}: {ex}")
+                append_paper_to_csv(sl_no, url, {})
                 results.append({
                     "url": url,
                     "status": "failed",
@@ -4482,53 +4535,7 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
             except Exception:
                 pass
 
-        # Save all results to a 5-column CSV file
-        csv_filename = "scraped_papers.csv"
-        try:
-            with open(csv_filename, mode="w", newline="", encoding="utf-8-sig") as csv_file:
-                fieldnames = ["SL NO.", "Title", "Authors", "Published Year", "Abstract"]
-                writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
-                writer.writeheader()
-
-                for idx, res in enumerate(results, start=1):
-                    url = res.get("url", "")
-                    scraped_data = res.get("scraped_data") or {}
-                    
-                    # Title logic: if empty, missing, or failed, fallback to the URL itself
-                    raw_title = scraped_data.get("title")
-                    if not raw_title or not str(raw_title).strip() or str(raw_title).strip().lower() in ["n/a", "none"]:
-                        title = url
-                    else:
-                        title = str(raw_title).strip()
-
-                    # Authors logic: comma-separated string
-                    raw_authors = scraped_data.get("authors")
-                    if isinstance(raw_authors, list):
-                        authors = ", ".join(str(a).strip() for a in raw_authors if str(a).strip())
-                    elif raw_authors:
-                        authors = str(raw_authors).strip()
-                    else:
-                        authors = "N/A"
-
-                    # Published Year logic
-                    pub_year = scraped_data.get("published_date") or scraped_data.get("year") or "N/A"
-                    pub_year = str(pub_year).strip()
-
-                    # Abstract logic
-                    abstract = scraped_data.get("abstract") or "N/A"
-                    abstract = str(abstract).strip()
-
-                    writer.writerow({
-                        "SL NO.": idx,
-                        "Title": title,
-                        "Authors": authors,
-                        "Published Year": pub_year,
-                        "Abstract": abstract
-                    })
-
-            print(f"[+] 📊 Successfully exported {len(results)} paper(s) to CSV: {os.path.abspath(csv_filename)}")
-        except Exception as csv_err:
-            print(f"[!] Error saving CSV: {csv_err}")
+        print(f"[+] 📊 Results continuously saved to CSV: {os.path.abspath(csv_filename)}")
 
     return results
 
