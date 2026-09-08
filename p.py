@@ -2033,6 +2033,203 @@ def extract_rsc_data(driver, item=None):
 
     return data
 
+def extract_oaepublish_data(driver, item=None):
+    """
+    Extracts structured paper details from OAE Publishing (oaepublish.com).
+    - Title: span.title_jmi, span[class*='title_'], h1.title, h1
+    - Authors: div#authorString span.author_name, span.authors_item span.author_name
+    - Publication Year / Date: span containing date (e.g. '21 Jun 2022'), meta citation_publication_date
+    - Abstract: div.abstract_content p, div[class*='abstract'] p, p, meta[name='citation_abstract']
+    - Fallback: Crossref DOI / Title resolution
+    """
+    data = {}
+
+    # 1. Title
+    try:
+        title_elem = None
+        for sel in [
+            "span.title_jmi", "span[class*='title_']", "h1.article-title",
+            "h1.title", "div.article_title", "h1"
+        ]:
+            elems = driver.find_elements(By.CSS_SELECTOR, sel)
+            if elems and any(e.text.strip() for e in elems):
+                title_elem = [e for e in elems if e.text.strip()][0]
+                break
+
+        if title_elem:
+            data["title"] = clean_title_text(title_elem.text.strip())
+        else:
+            meta_t = driver.find_element(By.CSS_SELECTOR, "meta[name='citation_title']")
+            data["title"] = clean_title_text(meta_t.get_attribute("content") or "")
+    except Exception:
+        data["title"] = driver.title
+
+    # 2. Authors
+    try:
+        author_names = []
+        author_elements = driver.find_elements(
+            By.CSS_SELECTOR,
+            "div#authorString span.author_name, span.authors_item span.author_name, span.author_name, div#authorString h3"
+        )
+        for elem in author_elements:
+            name = elem.text.strip()
+            # Clean superscript numbers/commas/stars e.g. "Tian Lu1" -> "Tian Lu", "Minjie Li2,3,*" -> "Minjie Li"
+            name = re.sub(r'[\d,*†‡§]', '', name).strip()
+            if name and name not in author_names and len(name) > 2 and "\n" not in name:
+                author_names.append(name)
+
+        if not author_names:
+            meta_authors = driver.find_elements(By.CSS_SELECTOR, "meta[name='citation_author']")
+            for ma in meta_authors:
+                content = ma.get_attribute("content")
+                if content and content.strip() not in author_names:
+                    author_names.append(content.strip())
+
+        data["authors"] = author_names
+    except Exception:
+        data["authors"] = []
+
+    # 3. Publication Year / Date
+    try:
+        date_str = "N/A"
+        # Search page text for dates like "21 Jun 2022" or "2022"
+        date_elements = driver.find_elements(
+            By.CSS_SELECTOR,
+            "span[data-v-fbd9b55a], span.date, div.article_date, div.info-box span"
+        )
+        for elem in date_elements:
+            txt = elem.text.strip()
+            match = re.search(r'\b(?:(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4})|(19\d\d|20\d\d))\b', txt, re.I)
+            if match:
+                date_str = match.group(0)
+                year_match = re.search(r'\b(19\d\d|20\d\d)\b', date_str)
+                if year_match:
+                    date_str = year_match.group(1)
+                break
+
+        if date_str == "N/A":
+            for meta_sel in [
+                "meta[name='citation_publication_date']",
+                "meta[name='citation_online_date']",
+                "meta[name='citation_date']"
+            ]:
+                try:
+                    elem = driver.find_element(By.CSS_SELECTOR, meta_sel)
+                    val = elem.get_attribute("content")
+                    if val:
+                        match = re.search(r'\b(19\d\d|20\d\d)\b', val)
+                        date_str = match.group(1) if match else val.strip()
+                        break
+                except Exception:
+                    pass
+
+        data["published_date"] = date_str
+    except Exception:
+        data["published_date"] = "N/A"
+
+    # 4. Abstract
+    try:
+        raw_text = ""
+        for abs_sel in [
+            "div.abstract_content p", "div.article-abstract p", "div[class*='abstract'] p",
+            "section.abstract p", "div.abstract_content", "div[class*='abstract']"
+        ]:
+            elems = driver.find_elements(By.CSS_SELECTOR, abs_sel)
+            if elems and any(e.text.strip() for e in elems):
+                raw_text = "\n\n".join([e.text.strip() for e in elems if e.text.strip()])
+                break
+
+        if not raw_text:
+            try:
+                meta_abs = driver.find_element(
+                    By.CSS_SELECTOR,
+                    "meta[name='citation_abstract'], meta[name='description'], meta[property='og:description']"
+                )
+                raw_text = meta_abs.get_attribute("content") or ""
+            except Exception:
+                pass
+
+        if "Abstract" in raw_text:
+            raw_text = raw_text[raw_text.find("Abstract"):]
+        else:
+            raw_text = "Abstract\n\n" + raw_text
+
+        data["abstract"] = format_abstract_text(raw_text)
+    except Exception:
+        data["abstract"] = "N/A"
+
+    # 5. Crossref Fallback if blocked or missing fields
+    title_bad = data.get("title", "").strip().lower() in [
+        "oaepublish.com", "oae publishing", "journal of materials informatics", "just a moment...", "are you a robot", ""
+    ]
+    if not data.get("authors") or title_bad or data.get("published_date") == "N/A" or data.get("abstract") in ["N/A", "", "Abstract"]:
+        try:
+            doc_link = item.get("document_link", "") if isinstance(item, dict) else ""
+            item_link = item.get("link", "") if isinstance(item, dict) else ""
+            cur_url = driver.current_url or ""
+            target_str = f"{doc_link} {item_link} {cur_url}"
+            doi = None
+            doi_match = re.search(r'10\.\d{4,9}/[-._;()/:A-Za-z0-9]+', target_str)
+            if doi_match:
+                doi = doi_match.group(0).rstrip('/')
+
+            # Search Crossref by paper title if available
+            cand_title = item.get("title") if isinstance(item, dict) else None
+            if not doi and cand_title and cand_title not in ["No Title", "Direct URL"]:
+                try:
+                    import urllib.parse
+                    q = urllib.parse.quote_plus(cand_title)
+                    import requests
+                    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+                    cr_s = requests.get(f"https://api.crossref.org/works?query.title={q}&rows=1", headers=headers, timeout=8)
+                    if cr_s.status_code == 200 and cr_s.json().get("message", {}).get("items"):
+                        doi = cr_s.json()["message"]["items"][0].get("DOI")
+                except Exception:
+                    pass
+
+            if doi:
+                doi = doi.rstrip('/')
+                import requests
+                headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+                cr_resp = requests.get(f"https://api.crossref.org/works/{doi}", headers=headers, timeout=8)
+                if cr_resp.status_code == 200:
+                    msg = cr_resp.json().get("message", {})
+                    if msg.get("title"):
+                        clean_t = msg["title"][0] if isinstance(msg["title"], list) else str(msg["title"])
+                        if title_bad or len(data.get("title", "")) < len(clean_t):
+                            data["title"] = clean_title_text(clean_t)
+                    if not data.get("authors") and msg.get("author"):
+                        cr_authors = []
+                        for a in msg["author"]:
+                            g = a.get("given", "").strip()
+                            f = a.get("family", "").strip()
+                            name = f"{g} {f}".strip() if g and f else (f or g)
+                            if name and name not in cr_authors:
+                                cr_authors.append(name)
+                        if cr_authors:
+                            data["authors"] = cr_authors
+                    if data.get("published_date") in ["N/A", "None", None]:
+                        date_parts = msg.get("published-online", {}).get("date-parts") or msg.get("published-print", {}).get("date-parts") or msg.get("issued", {}).get("date-parts")
+                        if date_parts and date_parts[0]:
+                            data["published_date"] = str(date_parts[0][0])
+                    current_abs = data.get("abstract", "").strip()
+                    if (current_abs in ["N/A", "", "Abstract"] or len(current_abs) <= 15) and msg.get("abstract"):
+                        clean_abs = re.sub(r'<[^>]+>', '', msg["abstract"]).strip()
+                        if "Abstract" in clean_abs:
+                            clean_abs = clean_abs[clean_abs.find("Abstract"):]
+                        else:
+                            clean_abs = "Abstract\n\n" + clean_abs
+                        data["abstract"] = format_abstract_text(clean_abs)
+        except Exception:
+            pass
+
+    # Safety fallback: if title is still the domain, use item title if provided
+    if data.get("title", "").strip().lower() in ["oaepublish.com", "oae publishing", "journal of materials informatics", "just a moment...", ""]:
+        if isinstance(item, dict) and item.get("title") and item.get("title") not in ["No Title", "Direct URL"]:
+            data["title"] = item.get("title")
+
+    return data
+
 def load_links_from_json(json_path):
     """
     Reads a JSON file and extracts paper metadata.
@@ -2164,6 +2361,7 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
                 else:
                     # For fast lite sites (Springer, MDPI, Frontiers, Nature, De Gruyter Brill), wait up to 6 seconds for title/body element
                     fast_selectors = [
+                        "span.title_jmi", "div#authorString", "div.article-authors",
                         "h1#artTitle", "div.abstract-content",
                         "h1.title-dgb", "h1[class*='title-dgb']", "h1.c-article-title",
                         "h1[data-test='article-title']", "h1.title", "h1[itemprop='name']",
@@ -2347,6 +2545,16 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
                     scraped_data = extract_rsc_data(current_driver, item=item)
 
                     print(f"\n--- [ Royal Society of Chemistry Extracted Data ] ---")
+                    print(f"📌 Title          : {scraped_data.get('title')}")
+                    print(f"👥 Author Names   : {', '.join(scraped_data.get('authors', []))}")
+                    print(f"📅 Published Date : {scraped_data.get('published_date')}")
+                    print(f"\n📖 Abstract (Formatted Plain Text):\n\n{scraped_data.get('abstract')}\n")
+
+                elif "oaepublish.com" in parsed_domain:
+                    print(f"[*] OAE Publishing Domain Detected -> Extracting OAE Article Elements...")
+                    scraped_data = extract_oaepublish_data(current_driver, item=item)
+
+                    print(f"\n--- [ OAE Publishing Extracted Data ] ---")
                     print(f"📌 Title          : {scraped_data.get('title')}")
                     print(f"👥 Author Names   : {', '.join(scraped_data.get('authors', []))}")
                     print(f"📅 Published Date : {scraped_data.get('published_date')}")
