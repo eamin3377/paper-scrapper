@@ -3913,15 +3913,12 @@ def load_links_from_json(json_path):
 
         def extract_item_info(idx, item):
             if isinstance(item, dict):
-                # Strictly take "link" - NEVER use "documentLink"
+                # Always take "link" - NEVER use "documentLink"
                 target_url = item.get("link")
-                if not target_url or not isinstance(target_url, str):
+                if not target_url or not isinstance(target_url, str) or not target_url.strip():
                     return None
                 
                 target_url = target_url.strip()
-                # If target_url itself ends in .pdf, ignore it
-                if is_pdf_url(target_url):
-                    return None
 
                 return {
                     "index": idx,
@@ -3934,7 +3931,7 @@ def load_links_from_json(json_path):
                 }
             elif isinstance(item, str):
                 s = item.strip()
-                if (s.startswith("http://") or s.startswith("https://")) and not is_pdf_url(s):
+                if s.startswith("http://") or s.startswith("https://"):
                     return {
                         "index": idx,
                         "title": "Direct URL",
