@@ -23,6 +23,48 @@ try:
 except ImportError:
     HAS_UC = False
 
+try:
+    from langdetect import detect_langs
+    HAS_LANGDETECT = True
+except ImportError:
+    HAS_LANGDETECT = False
+
+def is_text_english(title, abstract=None):
+    """
+    Checks whether a paper's title or abstract is in English.
+    Returns False if foreign language (e.g. Spanish, Turkish, Portuguese, Chinese, Korean, Arabic, French, German).
+    """
+    # 1. Reject non-Latin scripts (Chinese, Japanese, Korean, Arabic, Cyrillic)
+    full_str = f"{title or ''} {abstract or ''}"
+    if re.search(r'[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af\u0600-\u06ff\u0400-\u04ff]', full_str):
+        return False
+
+    # 2. Check abstract language if substantial
+    if HAS_LANGDETECT:
+        clean_abs = (abstract or "").replace("Abstract", "").strip()
+        if clean_abs and len(clean_abs) > 50:
+            try:
+                langs = detect_langs(clean_abs[:400])
+                top = langs[0]
+                if top.lang != 'en' and top.prob > 0.85:
+                    return False
+            except Exception:
+                pass
+
+        if title and len(title.strip()) > 10:
+            try:
+                t_langs = detect_langs(title)
+                top_t = t_langs[0]
+                if top_t.lang in ['tr', 'pt', 'es', 'de', 'fr', 'sk', 'id'] and top_t.prob > 0.90:
+                    lower_t = title.lower()
+                    foreign_markers = ['ve', 'ile', 'veya', 'bir', 'için', 'uma', 'para', 'com', 'da', 'do', 'em', 'der', 'die', 'und', 'von', 'des', 'les', 'pour', 'dans', 'del', 'los', 'las', 'por', 'ako', 'pre']
+                    if any(w in lower_t.split() for w in foreign_markers):
+                        return False
+            except Exception:
+                pass
+
+    return True
+
 # Ensure stdout handles UTF-8 encoding on Windows PowerShell / CMD
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
@@ -4525,6 +4567,18 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
             else:
                 final_title = str(raw_title).strip()
 
+            raw_abstract = data_dict.get("abstract") if data_dict else None
+            # If abstract is missing, empty, or N/A, save the link on that abstract section
+            if not raw_abstract or not str(raw_abstract).strip() or str(raw_abstract).strip().lower() in ["n/a", "none", "abstract"]:
+                abstract = url_target
+            else:
+                abstract = str(raw_abstract).strip()
+
+            # Filter non-English papers
+            if not is_text_english(final_title, abstract):
+                print(f"[!] 🌐 Non-English paper detected ('{final_title[:45]}...'). Skipping from CSV as requested.")
+                return False
+
             raw_authors = data_dict.get("authors") if data_dict else None
             if isinstance(raw_authors, list):
                 authors = ", ".join(str(a).strip() for a in raw_authors if str(a).strip())
@@ -4535,13 +4589,6 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
 
             pub_year = data_dict.get("published_date") or data_dict.get("year") or "N/A" if data_dict else "N/A"
             pub_year = str(pub_year).strip()
-
-            raw_abstract = data_dict.get("abstract") if data_dict else None
-            # If abstract is missing, empty, or N/A, save the link on that abstract section
-            if not raw_abstract or not str(raw_abstract).strip() or str(raw_abstract).strip().lower() in ["n/a", "none", "abstract"]:
-                abstract = url_target
-            else:
-                abstract = str(raw_abstract).strip()
 
             written = False
             for attempt in range(5):
