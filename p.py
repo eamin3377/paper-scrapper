@@ -4512,7 +4512,8 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
     print(f"[*] STARTING MULTI-DOMAIN BROWSER SCRAPPER (Target Links: {len(link_items)})")
     print(f"==================================================================\n")
 
-    csv_filename = "scraped_papers.csv"
+    script_dir = os.path.dirname(os.path.abspath(__file__)) if '__file__' in globals() else os.getcwd()
+    csv_filename = os.path.join(script_dir, "scraped_papers.csv")
     fieldnames = ["SL NO.", "Title", "Authors", "Published Year", "Abstract", "Paper Link"]
 
     def append_paper_to_csv(sl_no, url_target, data_dict):
