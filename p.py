@@ -4609,7 +4609,12 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
     csv_filename = os.path.join(script_dir, "scraped_papers.csv")
     fieldnames = ["SL NO.", "Title", "Authors", "Published Year", "Abstract", "Paper Link"]
 
-    def append_paper_to_csv(sl_no, url_target, data_dict):
+    written_count = 0
+    seen_csv_titles = set()
+    seen_csv_links = set()
+
+    def append_paper_to_csv(url_target, data_dict):
+        nonlocal written_count
         try:
             raw_title = data_dict.get("title") if data_dict else None
             # If title is missing, empty, bot verification, or generic domain error, fallback to placing the URL or genuine title
@@ -4631,6 +4636,17 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
                 print(f"[!] 🌐 Non-English paper detected ('{final_title[:45]}...'). Skipping from CSV as requested.")
                 return False
 
+            # Runtime Deduplication: Ensure this paper has not already been written to CSV
+            norm_t = re.sub(r'[^a-zA-Z0-9]', '', final_title.lower())
+            norm_u = re.sub(r'[?#].*$', '', re.sub(r'^https?://', '', (url_target or '').strip().lower()).rstrip('/'))
+
+            if norm_t and norm_t in seen_csv_titles:
+                print(f"[!] ⚠️ Duplicate paper title detected ('{final_title[:45]}...'). Skipping duplicate write.")
+                return False
+            if norm_u and norm_u in seen_csv_links:
+                print(f"[!] ⚠️ Duplicate paper URL detected ('{norm_u[:45]}...'). Skipping duplicate write.")
+                return False
+
             raw_authors = data_dict.get("authors") if data_dict else None
             if isinstance(raw_authors, list):
                 authors = ", ".join(str(a).strip() for a in raw_authors if str(a).strip())
@@ -4648,7 +4664,7 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
                     with open(csv_filename, mode="a", newline="", encoding="utf-8-sig") as f:
                         writer = csv.DictWriter(f, fieldnames=fieldnames)
                         writer.writerow({
-                            "SL NO.": sl_no,
+                            "SL NO.": written_count + 1,
                             "Title": final_title,
                             "Authors": authors,
                             "Published Year": pub_year,
@@ -4657,6 +4673,11 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
                         })
                         f.flush()
                     written = True
+                    written_count += 1
+                    if norm_t:
+                        seen_csv_titles.add(norm_t)
+                    if norm_u:
+                        seen_csv_links.add(norm_u)
                     break
                 except PermissionError:
                     if attempt == 0:
@@ -4667,11 +4688,14 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
                     break
 
             if written:
-                print(f"[+] 💾 Saved item [{sl_no}/{total}] to {csv_filename}")
+                print(f"[+] 💾 Saved item [{written_count}/{total}] to {csv_filename}")
+                return True
             else:
-                print(f"[!] Could not write item [{sl_no}/{total}] to CSV after retries.")
+                print(f"[!] Could not write item to CSV after retries.")
+                return False
         except Exception as e:
             print(f"[!] Error in append_paper_to_csv: {e}")
+            return False
 
     # Initialize / overwrite CSV header at the beginning of the run
     for attempt in range(5):
@@ -4741,7 +4765,7 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
                     "published_date": str(item.get("year")) if (item.get("year") and item.get("year") != "N/A") else "N/A",
                     "abstract": "N/A"
                 }
-                append_paper_to_csv(sl_no, url, fallback_data)
+                append_paper_to_csv(url, fallback_data)
                 results.append({
                     "url": url,
                     "scraped_data": fallback_data,
@@ -4767,7 +4791,7 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
                     print(f"📅 Published Date : {scraped_data.get('published_date')}")
                     print(f"\n📖 Abstract (Formatted Plain Text):\n\n{scraped_data.get('abstract')}\n")
 
-                    append_paper_to_csv(sl_no, url, scraped_data)
+                    append_paper_to_csv(url, scraped_data)
                     results.append({
                         "url": url,
                         "scraped_data": scraped_data,
@@ -4775,7 +4799,7 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
                     })
                 except Exception as pdf_ex:
                     print(f"[!] Failed to parse PDF {url}: {pdf_ex}")
-                    append_paper_to_csv(sl_no, url, {})
+                    append_paper_to_csv(url, {})
                     results.append({
                         "url": url,
                         "status": "failed",
@@ -5107,7 +5131,7 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
                     print(f"\n📖 Abstract (Formatted Plain Text):\n\n{scraped_data.get('abstract')}\n")
 
                 processed_domain_count += 1
-                append_paper_to_csv(sl_no, url, scraped_data)
+                append_paper_to_csv(url, scraped_data)
                 results.append({
                     "url": url,
                     "scraped_data": scraped_data,
@@ -5123,7 +5147,7 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
                     "published_date": str(item.get("year")) if (item.get("year") and item.get("year") != "N/A") else "N/A",
                     "abstract": url
                 }
-                append_paper_to_csv(sl_no, url, fallback_data)
+                append_paper_to_csv(url, fallback_data)
                 results.append({
                     "url": url,
                     "status": "failed",
