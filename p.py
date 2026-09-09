@@ -39,7 +39,20 @@ def is_text_english(title, abstract=None):
     if re.search(r'[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af\u0600-\u06ff\u0400-\u04ff]', full_str):
         return False
 
-    # 2. Check abstract language if substantial
+    # 2. Check title with foreign vocabulary
+    if title and len(title.strip()) > 5:
+        lower_t = title.lower()
+        words = set(re.findall(r'\b[a-zA-Záéíóúãõçüöğışâêîôûàèìòùäëïöüÿñ]+\b', lower_t))
+        foreign_words = {'ve', 'ile', 'veya', 'bir', 'için', 'yöntemleri', 'tahmini', 'kullanımı', 'hastalarının',
+                         'uma', 'para', 'da', 'do', 'das', 'dos', 'em', 'acerca', 'previsão', 'solução', 'análise', 'predição',
+                         'der', 'die', 'und', 'von', 'des', 'les', 'pour', 'dans', 'im', 'retourenmanagement',
+                         'del', 'los', 'las', 'por', 'una', 'dificultades', 'quiebra', 'técnicas', 'entidades', 'mejora', 'mediante',
+                         'dan', 'sistem', 'cerdas', 'pengembangan',
+                         'klasifikácia', 'využitím', 'návrhy'}
+        if words.intersection(foreign_words):
+            return False
+
+    # 3. Check abstract language if substantial
     if HAS_LANGDETECT:
         clean_abs = (abstract or "").replace("Abstract", "").strip()
         if clean_abs and len(clean_abs) > 50:
@@ -56,10 +69,7 @@ def is_text_english(title, abstract=None):
                 t_langs = detect_langs(title)
                 top_t = t_langs[0]
                 if top_t.lang in ['tr', 'pt', 'es', 'de', 'fr', 'sk', 'id'] and top_t.prob > 0.90:
-                    lower_t = title.lower()
-                    foreign_markers = ['ve', 'ile', 'veya', 'bir', 'için', 'uma', 'para', 'com', 'da', 'do', 'em', 'der', 'die', 'und', 'von', 'des', 'les', 'pour', 'dans', 'del', 'los', 'las', 'por', 'ako', 'pre']
-                    if any(w in lower_t.split() for w in foreign_markers):
-                        return False
+                    return False
             except Exception:
                 pass
 
@@ -4534,7 +4544,45 @@ def load_links_from_json(json_path):
                                 "link": line
                             })
 
-        return links
+        # Deduplicate and filter non-English records before returning
+        unique_links = []
+        seen_titles = {}
+        seen_links = set()
+
+        def norm_title(t):
+            return re.sub(r'[^a-zA-Z0-9]', '', (t or '').lower())
+
+        def norm_link(u):
+            if not u or u == 'N/A':
+                return ''
+            return re.sub(r'[?#].*$', '', u.strip().lower().rstrip('/'))
+
+        for it in links:
+            t = it.get("title", "")
+            u = it.get("link", "")
+            
+            # Check language
+            if not is_text_english(t):
+                continue
+                
+            nt = norm_title(t)
+            nu = norm_link(u)
+            
+            # Reject duplicates
+            if nt and nt in seen_titles:
+                continue
+            if nu and nu in seen_links:
+                continue
+
+            if nt:
+                seen_titles[nt] = True
+            if nu:
+                seen_links.add(nu)
+
+            it["index"] = len(unique_links)
+            unique_links.append(it)
+
+        return unique_links
     except Exception as e:
         print(f"[!] Error reading file {json_path}: {e}")
         return []
