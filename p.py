@@ -4563,6 +4563,7 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
 
     def append_paper_to_csv(sl_no, url_target, data_dict):
         try:
+            raw_title = data_dict.get("title") if data_dict else None
             # If title is missing, empty, bot verification, or generic domain error, fallback to placing the URL or genuine title
             bot_phrases = ['are you a robot', 'just a moment', 'cloudflare', 'attention required', 'access denied', '403 forbidden', 'security service to protect']
             if not raw_title or not str(raw_title).strip() or str(raw_title).strip().lower() in ["n/a", "none", "no title"] or any(bp in str(raw_title).lower() for bp in bot_phrases):
