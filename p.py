@@ -3895,6 +3895,429 @@ def extract_biofuel_data(driver, item=None):
 
     return data
 
+def extract_pmc_data(driver, item=None):
+    """
+    Extracts paper details from PubMed Central (PMC / NCBI) using e-utilities and page selectors.
+    """
+    import requests
+    data = {}
+    url = driver.current_url or (item.get("link", "") if isinstance(item, dict) else "")
+    pmc_id_match = re.search(r'PMC(\d+)', url, re.I)
+    pmc_id = pmc_id_match.group(1) if pmc_id_match else None
+
+    # Strategy 1: NCBI E-utilities XML API
+    if pmc_id:
+        try:
+            api_url = f"https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pmc&id={pmc_id}&retmode=xml"
+            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+            resp = requests.get(api_url, headers=headers, timeout=12)
+            if resp.status_code == 200 and resp.text:
+                xml = resp.text
+                # Title
+                t_m = re.search(r'<article-title[^>]*>(.*?)</article-title>', xml, re.DOTALL)
+                if t_m:
+                    data["title"] = clean_title_text(re.sub(r'<[^>]+>', '', t_m.group(1)).strip())
+                # Authors
+                auth_list = []
+                contrib_matches = re.findall(r'<contrib[^>]*contrib-type=["\']author["\'][^>]*>(.*?)</contrib>', xml, re.DOTALL)
+                for c in contrib_matches:
+                    sur = re.search(r'<surname[^>]*>(.*?)</surname>', c, re.DOTALL)
+                    giv = re.search(r'<given-names[^>]*>(.*?)</given-names>', c, re.DOTALL)
+                    if sur:
+                        s_txt = re.sub(r'<[^>]+>', '', sur.group(1)).strip()
+                        g_txt = re.sub(r'<[^>]+>', '', giv.group(1)).strip() if giv else ""
+                        full_a = f"{g_txt} {s_txt}".strip() if g_txt else s_txt
+                        if full_a and full_a not in auth_list:
+                            auth_list.append(full_a)
+                if auth_list:
+                    data["authors"] = auth_list
+                # Year
+                y_m = re.search(r'<pub-date[^>]*>.*?<year[^>]*>(\d{4})</year>', xml, re.DOTALL)
+                if y_m:
+                    data["published_date"] = y_m.group(1)
+                # Abstract
+                abs_m = re.search(r'<abstract[^>]*>(.*?)</abstract>', xml, re.DOTALL)
+                if abs_m:
+                    raw_abs = re.sub(r'<[^>]+>', ' ', abs_m.group(1))
+                    raw_abs = re.sub(r'\s+', ' ', raw_abs).strip()
+                    if raw_abs:
+                        data["abstract"] = format_abstract_text(f"Abstract\n\n{raw_abs}")
+        except Exception:
+            pass
+
+    # Strategy 2: Page Elements Fallback if API was missed or incomplete
+    if not data.get("title") or data.get("title") in ["N/A", ""]:
+        for t_sel in ["h1.content-title", "h1.part-title", "h1.title", "h1"]:
+            try:
+                elems = driver.find_elements(By.CSS_SELECTOR, t_sel)
+                if elems and elems[0].text.strip():
+                    data["title"] = clean_title_text(elems[0].text.strip())
+                    break
+            except Exception:
+                pass
+
+    if not data.get("authors"):
+        try:
+            a_elems = driver.find_elements(By.CSS_SELECTOR, "div.authors-list a, div.contrib-group a, a.full-name")
+            names = [e.text.strip() for e in a_elems if len(e.text.strip()) > 2 and not e.text.strip().isdigit()]
+            if names:
+                data["authors"] = names
+        except Exception:
+            pass
+
+    if not data.get("published_date") or data.get("published_date") == "N/A":
+        try:
+            cit_date = driver.find_element(By.CSS_SELECTOR, "meta[name='citation_date'], meta[name='citation_publication_date']").get_attribute("content")
+            ym = re.search(r'\b(19\d\d|20\d\d)\b', cit_date or "")
+            if ym:
+                data["published_date"] = ym.group(1)
+        except Exception:
+            pass
+
+    if not data.get("abstract") or data.get("abstract") in ["N/A", ""]:
+        try:
+            for abs_sel in [
+                "div.abstract", "div#abstract", "div.tsec.sec", "section.abstract",
+                "div[class*='abstract']", "div.abstract-content"
+            ]:
+                elems = driver.find_elements(By.CSS_SELECTOR, abs_sel)
+                if elems and elems[0].text.strip():
+                    raw_t = elems[0].text.strip()
+                    if len(raw_t) > 40:
+                        data["abstract"] = format_abstract_text(raw_t if "Abstract" in raw_t else f"Abstract\n\n{raw_t}")
+                        break
+        except Exception:
+            pass
+
+    # Enrich fallback with item data
+    if isinstance(item, dict):
+        if not data.get("title") or data.get("title") in ["N/A", ""]:
+            data["title"] = item.get("title", "N/A")
+        if not data.get("authors") and item.get("authors") and item.get("authors") != "N/A":
+            data["authors"] = [item.get("authors")]
+        if not data.get("published_date") or data.get("published_date") == "N/A":
+            data["published_date"] = str(item.get("year", "N/A"))
+
+    return data
+
+def extract_generic_data(driver, item=None):
+    """
+    Universal generic scholarly extractor for any unmatched domain or journal repository.
+    Inspects standard meta tags (citation_*, dc.*, og:*), heading+paragraph DOM elements,
+    heading+sibling paragraph elements (e.g. h2 'Abstract' + p), and Crossref/OpenAlex fallback.
+    """
+    import requests
+    data = {
+        "title": "N/A",
+        "authors": [],
+        "published_date": "N/A",
+        "abstract": "N/A"
+    }
+
+    # --- 1. Title Extraction ---
+    try:
+        # Check meta tags first
+        meta_title_selectors = [
+            "meta[name='citation_title']",
+            "meta[name='DC.Title']",
+            "meta[name='dc.title']",
+            "meta[name='bepress_citation_title']",
+            "meta[property='og:title']",
+            "meta[name='twitter:title']"
+        ]
+        for sel in meta_title_selectors:
+            try:
+                elem = driver.find_element(By.CSS_SELECTOR, sel)
+                val = elem.get_attribute("content")
+                if val and len(val.strip()) > 5:
+                    data["title"] = clean_title_text(val.strip())
+                    break
+            except Exception:
+                pass
+
+        # Fallback to DOM elements
+        if data["title"] in ["N/A", ""]:
+            for sel in [
+                "h1.article-title", "h1.entry-title", "h1.page_title", "h1.title",
+                "h1[class*='title']", "h1 a[href*='viewcontent.cgi']", "h1"
+            ]:
+                elems = driver.find_elements(By.CSS_SELECTOR, sel)
+                if elems and any(e.text.strip() for e in elems):
+                    t = [e for e in elems if e.text.strip()][0].text.strip()
+                    if len(t) > 5 and "\n" not in t[:50]:
+                        data["title"] = clean_title_text(t)
+                        break
+
+        # Browser title fallback
+        if data["title"] in ["N/A", ""]:
+            data["title"] = clean_title_text(driver.title or "")
+    except Exception:
+        pass
+
+    # --- 2. Authors Extraction ---
+    try:
+        author_names = []
+        meta_author_selectors = [
+            "meta[name='citation_author']",
+            "meta[name='DC.Creator']",
+            "meta[name='dc.creator']",
+            "meta[name='bepress_citation_author']",
+            "meta[name='author']"
+        ]
+        for sel in meta_author_selectors:
+            meta_elems = driver.find_elements(By.CSS_SELECTOR, sel)
+            for me in meta_elems:
+                val = me.get_attribute("content")
+                if val and val.strip():
+                    name = val.strip()
+                    if "," in name and len(name.split(",")) == 2:
+                        parts = [p.strip() for p in name.split(",")]
+                        name = f"{parts[1]} {parts[0]}"
+                    if name not in author_names and 2 < len(name) < 70 and not name.isdigit():
+                        author_names.append(name)
+            if author_names:
+                break
+
+        # Fallback to DOM author classes
+        if not author_names:
+            dom_author_selectors = [
+                "ul.authors li span.name", "span.author-name", "a.author-name",
+                "div.author-list a", "div.authors span", "div[class*='author'] a"
+            ]
+            for sel in dom_author_selectors:
+                elems = driver.find_elements(By.CSS_SELECTOR, sel)
+                for el in elems:
+                    t = el.text.strip()
+                    t = re.sub(r'https?://[^\s]+', '', t)
+                    t = re.sub(r'[\w\.-]+@[\w\.-]+', '', t)
+                    t = re.sub(r'[†*‡§\d]', '', t).strip()
+                    if t and t not in author_names and 2 < len(t) < 60 and "\n" not in t:
+                        author_names.append(t)
+                if author_names:
+                    break
+
+        data["authors"] = author_names
+    except Exception:
+        data["authors"] = []
+
+    # --- 3. Publication Year Extraction ---
+    try:
+        date_str = "N/A"
+        meta_date_selectors = [
+            "meta[name='citation_publication_date']",
+            "meta[name='citation_date']",
+            "meta[name='citation_online_date']",
+            "meta[name='DC.Date']",
+            "meta[name='dc.date']",
+            "meta[name='bepress_citation_date']",
+            "meta[property='article:published_time']"
+        ]
+        for sel in meta_date_selectors:
+            try:
+                elem = driver.find_element(By.CSS_SELECTOR, sel)
+                val = elem.get_attribute("content")
+                if val:
+                    ym = re.search(r'\b(19\d\d|20\d\d)\b', val)
+                    if ym:
+                        date_str = ym.group(1)
+                        break
+            except Exception:
+                pass
+
+        if date_str == "N/A":
+            # Search URL or DOM text for 4-digit year
+            ym = re.search(r'/(19\d\d|20\d\d)[/-]', driver.current_url or "")
+            if ym:
+                date_str = ym.group(1)
+
+        data["published_date"] = date_str
+    except Exception:
+        data["published_date"] = "N/A"
+
+    # --- 4. Abstract Extraction ---
+    try:
+        raw_text = ""
+        # Check standard meta citation_abstract first
+        for sel in ["meta[name='citation_abstract']", "meta[name='description']", "meta[property='og:description']"]:
+            try:
+                elem = driver.find_element(By.CSS_SELECTOR, sel)
+                val = elem.get_attribute("content") or ""
+                if len(val.strip()) > 60:
+                    raw_text = val.strip()
+                    break
+            except Exception:
+                pass
+
+        # Check heading pattern: <h2 class="field-heading">Abstract</h2> followed by <p> tag or sibling
+        if not raw_text or len(raw_text) < 50:
+            try:
+                heading_script = """
+                var headings = document.querySelectorAll('h1, h2, h3, h4, strong, b, div, span');
+                for (var i = 0; i < headings.length; i++) {
+                    var txt = (headings[i].textContent || '').trim().toLowerCase();
+                    if (txt === 'abstract' || txt === 'summary') {
+                        var next = headings[i].nextElementSibling;
+                        while (next) {
+                            if (next.tagName.toLowerCase() === 'p' && next.textContent.trim().length > 40) {
+                                return next.textContent.trim();
+                            }
+                            if (next.querySelector('p')) {
+                                var innerP = next.querySelector('p');
+                                if (innerP && innerP.textContent.trim().length > 40) {
+                                    return innerP.textContent.trim();
+                                }
+                            }
+                            if (next.textContent.trim().length > 50) {
+                                return next.textContent.trim();
+                            }
+                            next = next.nextElementSibling;
+                        }
+                        // Check parent's next element or parent's paragraph
+                        var parentNext = headings[i].parentElement ? headings[i].parentElement.nextElementSibling : null;
+                        if (parentNext && parentNext.textContent.trim().length > 50) {
+                            return parentNext.textContent.trim();
+                        }
+                    }
+                }
+                return null;
+                """
+                dom_sibling_abs = driver.execute_script(heading_script)
+                if dom_sibling_abs and len(dom_sibling_abs.strip()) > 50:
+                    raw_text = dom_sibling_abs.strip()
+            except Exception:
+                pass
+
+        # Check dedicated abstract container selectors
+        if not raw_text or len(raw_text) < 50:
+            for abs_sel in [
+                "div#abstract p", "div.abstract p", "section.abstract p", "section#abstract p",
+                "div.article-abstract p", "section.item.abstract p", "div.padding_abstract",
+                "div#dv_ar_abs", "div.abstract-content", "div.abstract", "div#abstract",
+                "section.abstract", "section#abstract", "div[class*='abstract']"
+            ]:
+                try:
+                    elems = driver.find_elements(By.CSS_SELECTOR, abs_sel)
+                    if elems and any(e.text.strip() for e in elems):
+                        p_texts = [e.text.strip() for e in elems if len(e.text.strip()) > 30]
+                        if p_texts:
+                            cand = "\n\n".join(p_texts)
+                            if len(cand) > 50:
+                                raw_text = cand
+                                break
+                except Exception:
+                    pass
+
+        if raw_text:
+            if "Abstract" in raw_text:
+                raw_text = raw_text[raw_text.find("Abstract"):]
+            else:
+                raw_text = "Abstract\n\n" + raw_text
+            data["abstract"] = format_abstract_text(raw_text)
+        else:
+            data["abstract"] = "N/A"
+    except Exception:
+        data["abstract"] = "N/A"
+
+    # --- 5. Crossref / DOI Fallback Enrichment ---
+    cur_title = data.get("title", "").strip().lower()
+    title_bad = (
+        not data.get("title") or
+        any(err_kw in cur_title for err_kw in [
+            "just a moment...", "are you a robot", "attention required", "error",
+            "403 forbidden", "404 not found", "n/a", "this site can’t be reached",
+            "this site can't be reached", "err_connection", "err_name_not_resolved",
+            "problem loading page", "server not found", "access denied"
+        ]) or
+        cur_title.startswith("www.") or
+        "cloudflare" in cur_title or
+        "checking your browser" in cur_title
+    )
+
+    if not data.get("authors") or title_bad or data.get("published_date") == "N/A" or data.get("abstract") in ["N/A", "", "Abstract"]:
+        try:
+            item_link = item.get("link", "") if isinstance(item, dict) else ""
+            cur_url = driver.current_url or ""
+            doc_link = item.get("document_link", "") if isinstance(item, dict) else ""
+            target_str = f"{cur_url} {item_link} {doc_link}"
+            doi = None
+            doi_match = re.search(r'10\.\d{4,9}/[-._;()/:A-Za-z0-9]+', target_str)
+            if doi_match:
+                doi = doi_match.group(0).rstrip('/')
+                doi = re.sub(r'\.(?:abstract|full|pdf|article|html)$', '', doi, flags=re.I)
+
+            cand_title = item.get("title") if isinstance(item, dict) else None
+            if not doi and cand_title and cand_title not in ["No Title", "Direct URL"]:
+                try:
+                    import urllib.parse
+                    q = urllib.parse.quote_plus(cand_title)
+                    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+                    cr_s = requests.get(f"https://api.crossref.org/works?query.title={q}&rows=1", headers=headers, timeout=8)
+                    if cr_s.status_code == 200 and cr_s.json().get("message", {}).get("items"):
+                        doi = cr_s.json()["message"]["items"][0].get("DOI")
+                except Exception:
+                    pass
+
+            if doi:
+                doi = doi.rstrip('/')
+                headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+                cr_resp = requests.get(f"https://api.crossref.org/works/{doi}", headers=headers, timeout=8)
+                if cr_resp.status_code == 200:
+                    msg = cr_resp.json().get("message", {})
+                    if msg.get("title"):
+                        clean_t = msg["title"][0] if isinstance(msg["title"], list) else str(msg["title"])
+                        if title_bad or len(data.get("title", "")) < len(clean_t):
+                            data["title"] = clean_title_text(clean_t)
+                    if not data.get("authors") and msg.get("author"):
+                        cr_authors = []
+                        for a in msg["author"]:
+                            g = a.get("given", "").strip()
+                            f = a.get("family", "").strip()
+                            name = f"{g} {f}".strip() if g and f else (f or g)
+                            if name and name not in cr_authors:
+                                cr_authors.append(name)
+                        if cr_authors:
+                            data["authors"] = cr_authors
+                    if data.get("published_date") in ["N/A", "None", None]:
+                        date_parts = msg.get("published-online", {}).get("date-parts") or msg.get("issued", {}).get("date-parts") or msg.get("published-print", {}).get("date-parts")
+                        if date_parts and date_parts[0]:
+                            data["published_date"] = str(date_parts[0][0])
+                    current_abs = data.get("abstract", "").strip()
+                    if (current_abs in ["N/A", "", "Abstract"] or len(current_abs) <= 15) and msg.get("abstract"):
+                        clean_abs = re.sub(r'<[^>]+>', '', msg["abstract"]).strip()
+                        if "Abstract" in clean_abs:
+                            clean_abs = clean_abs[clean_abs.find("Abstract"):]
+                        else:
+                            clean_abs = "Abstract\n\n" + clean_abs
+                        data["abstract"] = format_abstract_text(clean_abs)
+
+                    # OpenAlex fallback if Crossref does not have abstract
+                    current_abs = data.get("abstract", "").strip()
+                    if current_abs in ["N/A", "", "Abstract"] or len(current_abs) <= 15:
+                        try:
+                            oa_resp = requests.get(f"https://api.openalex.org/works/https://doi.org/{doi}", headers=headers, timeout=8)
+                            if oa_resp.status_code == 200:
+                                inv = oa_resp.json().get("abstract_inverted_index")
+                                if inv:
+                                    words = sorted([(idx, word) for word, indices in inv.items() for idx in indices])
+                                    oa_text = " ".join([w[1] for w in words]).strip()
+                                    if oa_text:
+                                        data["abstract"] = format_abstract_text(f"Abstract\n\n{oa_text}")
+                        except Exception:
+                            pass
+        except Exception:
+            pass
+
+    # Safety fallback: preserve input.txt information if extraction missed fields
+    if isinstance(item, dict):
+        if (data.get("title") in ["N/A", ""] or title_bad) and item.get("title") and item.get("title") not in ["No Title", "Direct URL"]:
+            data["title"] = item.get("title")
+        if not data.get("authors") and item.get("authors") and item.get("authors") != "N/A":
+            data["authors"] = [item.get("authors")]
+        if data.get("published_date") in ["N/A", "None", None] and item.get("year") and str(item.get("year")) != "N/A":
+            data["published_date"] = str(item.get("year"))
+
+    return data
+
 def extract_pdf_data(pdf_url, item=None):
     """
     Downloads and extracts text from a direct PDF URL using pypdf.
@@ -4090,7 +4513,7 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
     print(f"==================================================================\n")
 
     csv_filename = "scraped_papers.csv"
-    fieldnames = ["SL NO.", "Title", "Authors", "Published Year", "Abstract"]
+    fieldnames = ["SL NO.", "Title", "Authors", "Published Year", "Abstract", "Paper Link"]
 
     def append_paper_to_csv(sl_no, url_target, data_dict):
         try:
@@ -4119,31 +4542,65 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
             else:
                 abstract = str(raw_abstract).strip()
 
-            with open(csv_filename, mode="a", newline="", encoding="utf-8-sig") as f:
-                writer = csv.DictWriter(f, fieldnames=fieldnames)
-                writer.writerow({
-                    "SL NO.": sl_no,
-                    "Title": final_title,
-                    "Authors": authors,
-                    "Published Year": pub_year,
-                    "Abstract": abstract
-                })
-                f.flush()
-            print(f"[+] 💾 Saved item [{sl_no}/{total}] to {csv_filename}")
+            written = False
+            for attempt in range(5):
+                try:
+                    with open(csv_filename, mode="a", newline="", encoding="utf-8-sig") as f:
+                        writer = csv.DictWriter(f, fieldnames=fieldnames)
+                        writer.writerow({
+                            "SL NO.": sl_no,
+                            "Title": final_title,
+                            "Authors": authors,
+                            "Published Year": pub_year,
+                            "Abstract": abstract,
+                            "Paper Link": url_target
+                        })
+                        f.flush()
+                    written = True
+                    break
+                except PermissionError:
+                    if attempt == 0:
+                        print(f"[!] Warning: '{csv_filename}' is locked by another process (e.g. Excel). Please close it. Retrying...")
+                    time.sleep(1.0)
+                except Exception as ex_write:
+                    print(f"[!] Error writing to CSV: {ex_write}")
+                    break
+
+            if written:
+                print(f"[+] 💾 Saved item [{sl_no}/{total}] to {csv_filename}")
+            else:
+                print(f"[!] Could not write item [{sl_no}/{total}] to CSV after retries.")
         except Exception as e:
-            print(f"[!] Error appending to CSV: {e}")
+            print(f"[!] Error in append_paper_to_csv: {e}")
 
     # Initialize / overwrite CSV header at the beginning of the run
-    try:
-        with open(csv_filename, mode="w", newline="", encoding="utf-8-sig") as f:
-            writer = csv.DictWriter(f, fieldnames=fieldnames)
-            writer.writeheader()
-    except Exception as e:
-        print(f"[!] Warning: Could not create CSV header: {e}")
+    for attempt in range(5):
+        try:
+            with open(csv_filename, mode="w", newline="", encoding="utf-8-sig") as f:
+                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                writer.writeheader()
+            break
+        except PermissionError:
+            if attempt == 0:
+                print(f"[!] Warning: '{csv_filename}' is locked. Please close it in Excel. Retrying...")
+            time.sleep(1.0)
+        except Exception as e:
+            print(f"[!] Warning: Could not create CSV header: {e}")
+            break
 
     results = []
     current_driver = None
     current_driver_type = None
+    processed_domain_count = 0
+
+    def get_fresh_driver(driver_type):
+        if driver_type == "captcha_humanoid":
+            print("[*] 🛡️ Initializing Undetected Humanoid Browser (Visible Mode for Cell / Wiley / ScienceDirect / RSC / ACS / Cambridge / Bentham)...")
+            return create_humanoid_driver(headless=False)
+        else:
+            print("[*] ⚡ Initializing Fast Lite Browser (Silent Headless Mode: Springer / Frontiers / MDPI / Nature / De Gruyter)...")
+            return create_lite_driver(headless=True)
+
     try:
         for item in link_items:
             sl_no = len(results) + 1
@@ -4152,20 +4609,22 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
             needs_captcha_humanoid = ("cell.com" in parsed_domain) or ("wiley.com" in parsed_domain) or ("sciencedirect.com" in parsed_domain) or ("tandfonline.com" in parsed_domain) or ("benthamdirect.com" in parsed_domain) or ("sagepub.com" in parsed_domain) or ("aip.org" in parsed_domain) or ("cambridge.org" in parsed_domain) or ("rsc.org" in parsed_domain) or ("acs.org" in parsed_domain) or ("emerald.com" in parsed_domain) or ("ascelibrary.org" in parsed_domain) or ("authorea.com" in parsed_domain) or ("medrxiv.org" in parsed_domain) or ("biorxiv.org" in parsed_domain) or ("twistjournal.net" in parsed_domain) or ("uokerbala.edu.iq" in parsed_domain) or ("kijoms" in parsed_domain)
 
             required_type = "captcha_humanoid" if needs_captcha_humanoid else "lite"
-            if current_driver_type != required_type:
+
+            # Periodic recycling: restart browser every 40 items to clear memory and prevent ChromeDriver disconnection crashes
+            should_recycle = (processed_domain_count >= 40)
+            if current_driver_type != required_type or should_recycle or current_driver is None:
                 if current_driver:
                     try:
                         current_driver.quit()
                     except Exception:
                         pass
-                
-                if required_type == "captcha_humanoid":
-                    print("[*] 🛡️ Initializing Undetected Humanoid Browser (Visible Mode for Cell / Wiley / ScienceDirect / RSC / ACS / Cambridge / Bentham)...")
-                    current_driver = create_humanoid_driver(headless=False)
-                else:
-                    print("[*] ⚡ Initializing Fast Lite Browser (Silent Headless Mode: Springer / Frontiers / MDPI / Nature / De Gruyter)...")
-                    current_driver = create_lite_driver(headless=True)
-                
+                    current_driver = None
+
+                if should_recycle:
+                    print(f"[*] ♻️ Recycling WebDriver session after {processed_domain_count} pages to free RAM and prevent session disconnection...")
+                    processed_domain_count = 0
+
+                current_driver = get_fresh_driver(required_type)
                 current_driver_type = required_type
 
             print(f"------------------------------------------------------------------")
@@ -4527,10 +4986,27 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
                     print(f"📅 Published Date : {scraped_data.get('published_date')}")
                     print(f"\n📖 Abstract (Formatted Plain Text):\n\n{scraped_data.get('abstract')}\n")
 
-                else:
-                    print(f"[+] Page Title : {current_driver.title}")
-                    print(f"[+] Final URL  : {current_driver.current_url}")
+                elif "pmc.ncbi.nlm.nih.gov" in parsed_domain or "ncbi.nlm.nih.gov" in parsed_domain or "/pmc/" in url:
+                    print(f"[*] PMC / NCBI Domain Detected -> Extracting PubMed Central Elements...")
+                    scraped_data = extract_pmc_data(current_driver, item=item)
 
+                    print(f"\n--- [ PMC / NCBI Extracted Data ] ---")
+                    print(f"📌 Title          : {scraped_data.get('title')}")
+                    print(f"👥 Author Names   : {', '.join(scraped_data.get('authors', []))}")
+                    print(f"📅 Published Date : {scraped_data.get('published_date')}")
+                    print(f"\n📖 Abstract (Formatted Plain Text):\n\n{scraped_data.get('abstract')}\n")
+
+                else:
+                    print(f"[*] Standard / Repository Domain Detected -> Extracting Generic Article Elements...")
+                    scraped_data = extract_generic_data(current_driver, item=item)
+
+                    print(f"\n--- [ Generic Scholarly Extracted Data ] ---")
+                    print(f"📌 Title          : {scraped_data.get('title')}")
+                    print(f"👥 Author Names   : {', '.join(scraped_data.get('authors', []))}")
+                    print(f"📅 Published Date : {scraped_data.get('published_date')}")
+                    print(f"\n📖 Abstract (Formatted Plain Text):\n\n{scraped_data.get('abstract')}\n")
+
+                processed_domain_count += 1
                 append_paper_to_csv(sl_no, url, scraped_data)
                 results.append({
                     "url": url,
@@ -4540,12 +5016,41 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
 
             except Exception as ex:
                 print(f"[!] Failed to load {url}: {ex}")
-                append_paper_to_csv(sl_no, url, {})
+                # Fallback to input metadata if available rather than blank
+                fallback_data = {
+                    "title": item.get("title") if (item.get("title") and item.get("title") != "No Title") else url,
+                    "authors": [item.get("authors")] if (item.get("authors") and item.get("authors") != "N/A") else [],
+                    "published_date": str(item.get("year")) if (item.get("year") and item.get("year") != "N/A") else "N/A",
+                    "abstract": url
+                }
+                append_paper_to_csv(sl_no, url, fallback_data)
                 results.append({
                     "url": url,
                     "status": "failed",
                     "error": str(ex)
                 })
+
+                # Check if the WebDriver crashed or session was disconnected
+                err_msg = str(ex).lower()
+                is_driver_dead = any(dead_kw in err_msg for dead_kw in [
+                    "disconnected", "not connected to devtools", "invalid session",
+                    "chrome not reachable", "session not created", "gethandleverifier",
+                    "broken pipe", "connection refused", "remotedisconnected", "target frame detached"
+                ])
+                if is_driver_dead:
+                    print(f"[*] ⚠️ Browser session crashed / disconnected. Performing clean restart of {required_type} driver...")
+                    try:
+                        current_driver.quit()
+                    except Exception:
+                        pass
+                    current_driver = None
+                    try:
+                        current_driver = get_fresh_driver(required_type)
+                        current_driver_type = required_type
+                        processed_domain_count = 0
+                        print(f"[+] 🚀 Browser restarted successfully! Continuing scraping seamlessly...")
+                    except Exception as restart_err:
+                        print(f"[!] Failed to reboot browser: {restart_err}")
     finally:
         print(f"\n==================================================================")
         print(f"[*] SCRAPING COMPLETED | Closing Browser Session")
