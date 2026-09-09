@@ -4414,8 +4414,8 @@ def extract_pdf_data(pdf_url, item=None):
         # 1. Abstract extraction from PDF text
         if full_text:
             text_norm = re.sub(r'[ \t]+', ' ', full_text)
-            # Find Abstract section heading
-            match_abs = re.search(r'(?i)\bAbstract\b[:\.\s—–-]*\n*(.*?)(?=\n\s*(?:(?:1[\.\s]+)?Introduction|Keywords|Index Terms|Background|Methods|Key words)|\Z)', text_norm, re.DOTALL)
+            # Find Abstract section heading (handles both 'Abstract' and spaced 'A B S T R A C T')
+            match_abs = re.search(r'(?is)\b(?:A\s*B\s*S\s*T\s*R\s*A\s*C\s*T|Abstract)\b[:\.\s—–-]*\n*(.*?)(?=\n\s*(?:(?:1[\.\s]+)?Introduction|Keywords|Index Terms|Background|Methods|Key words|A\s*R\s*T\s*I\s*C\s*L\s*E\s*I\s*N\s*F\s*O)|\Z)', text_norm)
             if match_abs:
                 raw_abs = match_abs.group(1).strip()
                 # Clean up multiple newlines or hyphenated words
