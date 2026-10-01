@@ -75,6 +75,42 @@ def is_text_english(title, abstract=None):
 
     return True
 
+def extract_transformer_models(text):
+    """
+    Intelligently detects specific Transformer architectures and variants from title, abstract, or text.
+    Returns a clean, comma-separated string of identified transformer models.
+    """
+    if not text or not str(text).strip() or str(text).strip().lower() in ["n/a", "none"]:
+        return "N/A"
+
+    patterns = [
+        (r'\b(?:Vision\s+Transformer|ViT(?:-[A-Za-z0-9/]+)?)\b', "Vision Transformer (ViT)"),
+        (r'\bSwin[- ]Transformer(?:-v\d+)?\b|\bSwin(?:-T|-S|-B|-L)\b', "Swin Transformer"),
+        (r'\bDeiT(?:-[A-Za-z0-9]+)?\b', "DeiT"),
+        (r'\bBEiT(?:-v\d+)?\b', "BEiT"),
+        (r'\bConformer\b', "Conformer"),
+        (r'\b(?:PVT|Pyramid\s+Vision\s+Transformer)\b', "Pyramid Vision Transformer (PVT)"),
+        (r'\bBERT\b|\bRoBERTa\b|\bDeBERTa\b', "BERT / RoBERTa"),
+        (r'\bSpatial[- ]Temporal\s+Transformer\b|\bST[- ]Transformer\b', "Spatial-Temporal Transformer"),
+        (r'\bCross[- ]Attention\s+Transformer\b', "Cross-Attention Transformer"),
+        (r'\bPatch[- ]based\s+Transformer\b', "Patch-based Transformer"),
+        (r'\bGraph\s+Transformer\b', "Graph Transformer"),
+        (r'\bMulti[- ]Head\s+Self[- ]Attention\s+Transformer\b', "Multi-Head Self-Attention Transformer"),
+        (r'\bTransformer[- ]based\b', "Transformer-based Model"),
+        (r'\bTransformer(?:s)?\b', "Transformer")
+    ]
+
+    found = []
+    for regex, label in patterns:
+        if re.search(regex, text, re.IGNORECASE):
+            if label not in found:
+                # If specific vision transformer is found, avoid redundant generic 'Transformer'
+                if label in ["Transformer", "Transformer-based Model"] and any(f in found for f in ["Vision Transformer (ViT)", "Swin Transformer", "DeiT", "BEiT", "Conformer", "Pyramid Vision Transformer (PVT)"]):
+                    continue
+                found.append(label)
+
+    return "; ".join(found) if found else "Transformer (General)"
+
 # Ensure stdout handles UTF-8 encoding on Windows PowerShell / CMD
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
@@ -4587,6 +4623,112 @@ def load_links_from_json(json_path):
         print(f"[!] Error reading file {json_path}: {e}")
         return []
 
+def scrape_google_scholar_query(search_url, max_pages=10, headless=False):
+    """
+    Directly scrapes Google Scholar search result pages for a query URL.
+    Extracts paper title, publisher link, year, authors, and metadata.
+    Handles CAPTCHA prompts with pause/resume.
+    """
+    print(f"\n==================================================================")
+    print(f"[*] INITIALIZING GOOGLE SCHOLAR QUERY SEARCH COLLECTOR")
+    print(f"[*] Target Query: {search_url}")
+    print(f"==================================================================\n")
+
+    driver = create_humanoid_driver(headless=headless)
+    collected_items = []
+    seen_titles = set()
+
+    try:
+        current_url = search_url
+        page_num = 1
+
+        while current_url and page_num <= max_pages:
+            print(f"[*] Accessing Google Scholar Page {page_num}...")
+            driver.get(current_url)
+            time.sleep(random.uniform(2.5, 4.0))
+
+            # Check for CAPTCHA / bot challenge
+            while "sorry/index" in driver.current_url or driver.find_elements(By.ID, "gs_captcha_c") or "recaptcha" in driver.page_source.lower():
+                print("\n⚠️ [ACTION REQUIRED] Google Scholar CAPTCHA / Robot Check detected in Chrome!")
+                print("⚠️ Please solve the CAPTCHA in the visible browser window.")
+                input("⚠️ Once solved, press ENTER here in the terminal to continue...")
+                time.sleep(3.0)
+
+            results_elems = driver.find_elements(By.CSS_SELECTOR, "div.gs_ri")
+            if not results_elems:
+                print(f"[!] No paper results found on page {page_num}.")
+                break
+
+            print(f"[+] Found {len(results_elems)} paper results on page {page_num}.")
+
+            for res in results_elems:
+                try:
+                    title_elem = res.find_element(By.CSS_SELECTOR, "h3.gs_rt a")
+                    title = title_elem.text.strip()
+                    paper_link = title_elem.get_attribute("href")
+                except Exception:
+                    try:
+                        title_elem = res.find_element(By.CSS_SELECTOR, "h3.gs_rt")
+                        title = title_elem.text.strip()
+                    except Exception:
+                        title = "No Title"
+                    paper_link = "N/A"
+
+                authors, pub_year, source = "N/A", "N/A", "N/A"
+                try:
+                    meta_elem = res.find_element(By.CSS_SELECTOR, "div.gs_a")
+                    meta_text = meta_elem.text.strip()
+                    parts = meta_text.split(" - ")
+                    if len(parts) >= 1:
+                        authors = parts[0].strip()
+                    if len(parts) >= 2:
+                        year_match = re.search(r'\b(20\d{2}|19\d{2})\b', parts[1])
+                        if year_match:
+                            pub_year = year_match.group(0)
+                        source = parts[1].strip()
+                    if len(parts) >= 3 and source == "N/A":
+                        source = parts[2].strip()
+                except Exception:
+                    pass
+
+                # Clean Title
+                clean_title = re.sub(r'^\[[A-Za-z0-9]+\]\s*', '', title).strip()
+                norm_title = re.sub(r'[^a-zA-Z0-9]', '', clean_title.lower())
+
+                if not paper_link or paper_link == "N/A" or not norm_title or norm_title in seen_titles:
+                    continue
+
+                seen_titles.add(norm_title)
+                collected_items.append({
+                    "index": len(collected_items),
+                    "title": clean_title,
+                    "link": paper_link,
+                    "authors": authors,
+                    "year": pub_year,
+                    "source": source
+                })
+
+            # Check for next page
+            try:
+                next_button = driver.find_elements(By.XPATH, "//b[text()='Next']/parent::a | //span[contains(@class, 'gs_ico_nav_next')]/parent::a")
+                if next_button and next_button[0].get_attribute("href"):
+                    current_url = next_button[0].get_attribute("href")
+                    page_num += 1
+                    time.sleep(random.uniform(2.0, 4.0))
+                else:
+                    break
+            except Exception:
+                break
+
+    finally:
+        try:
+            driver.quit()
+        except Exception:
+            pass
+
+    print(f"\n[+] Successfully gathered {len(collected_items)} authentic links directly from Google Scholar search.\n")
+    return collected_items
+
 def process_links(link_items, headless=False, disable_images=False, max_count=None):
     """
     Opens extracted links sequentially:
@@ -4607,7 +4749,7 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
 
     script_dir = os.path.dirname(os.path.abspath(__file__)) if '__file__' in globals() else os.getcwd()
     csv_filename = os.path.join(script_dir, "scraped_papers.csv")
-    fieldnames = ["SL NO.", "Title", "Authors", "Published Year", "Abstract", "Paper Link"]
+    fieldnames = ["SL NO.", "Title", "Published Year", "Transformer Model Used", "Paper Link", "Authors", "Abstract"]
 
     written_count = 0
     seen_csv_titles = set()
@@ -4635,6 +4777,10 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
             if not is_text_english(final_title, abstract):
                 print(f"[!] 🌐 Non-English paper detected ('{final_title[:45]}...'). Skipping from CSV as requested.")
                 return False
+
+            # Detect Transformer Model Used from Title, Abstract, and Keywords
+            search_context = f"{final_title} {abstract}"
+            transformer_model = extract_transformer_models(search_context)
 
             # Runtime Deduplication: Ensure this paper has not already been written to CSV
             norm_t = re.sub(r'[^a-zA-Z0-9]', '', final_title.lower())
@@ -4666,10 +4812,11 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
                         writer.writerow({
                             "SL NO.": written_count + 1,
                             "Title": final_title,
-                            "Authors": authors,
                             "Published Year": pub_year,
-                            "Abstract": abstract,
-                            "Paper Link": url_target
+                            "Transformer Model Used": transformer_model,
+                            "Paper Link": url_target,
+                            "Authors": authors,
+                            "Abstract": abstract
                         })
                         f.flush()
                     written = True
@@ -5194,7 +5341,13 @@ if __name__ == "__main__":
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     input_target = args[0] if args else None
     
-    if input_target and (input_target.startswith("http://") or input_target.startswith("https://")):
+    DEFAULT_SEARCH_URL = "https://scholar.google.com/scholar?start=0&q=(%22Transformer%22+OR+%22Transformer-based%22+OR+%22Vision+Transformer%22+OR+ViT+OR+%22Swin+Transformer%22+OR+DeiT+OR+BEiT)+AND+(%22deep+learning%22+OR+%22machine+learning%22)+OR+%22Autonomus+System%22&hl=en&as_sdt=0,5&as_ylo=2022&as_yhi=2026"
+
+    if input_target and "scholar.google.com" in input_target:
+        print(f"[*] Direct Google Scholar query URL provided.")
+        link_items = scrape_google_scholar_query(input_target, headless=is_headless)
+        process_links(link_items, headless=is_headless, disable_images=False)
+    elif input_target and (input_target.startswith("http://") or input_target.startswith("https://")):
         process_links([{"index": 0, "title": "Direct URL", "link": input_target}], headless=is_headless, disable_images=False)
     else:
         file_to_open = None
@@ -5211,4 +5364,6 @@ if __name__ == "__main__":
             print(f"[*] Found {len(link_items)} link(s) to process.")
             process_links(link_items, headless=is_headless, disable_images=False)
         else:
-            print("[!] Please provide a valid URL or JSON file path containing links (e.g. input.txt).")
+            print(f"[*] No input file provided. Using default Google Scholar search query URL...")
+            link_items = scrape_google_scholar_query(DEFAULT_SEARCH_URL, headless=is_headless)
+            process_links(link_items, headless=is_headless, disable_images=False)
