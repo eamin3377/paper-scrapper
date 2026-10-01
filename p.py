@@ -5349,21 +5349,13 @@ if __name__ == "__main__":
         process_links(link_items, headless=is_headless, disable_images=False)
     elif input_target and (input_target.startswith("http://") or input_target.startswith("https://")):
         process_links([{"index": 0, "title": "Direct URL", "link": input_target}], headless=is_headless, disable_images=False)
+    elif input_target and os.path.isfile(input_target):
+        print(f"[*] Reading specified input file: {input_target}")
+        link_items = load_links_from_json(input_target)
+        print(f"[*] Found {len(link_items)} link(s) to process.")
+        process_links(link_items, headless=is_headless, disable_images=False)
     else:
-        file_to_open = None
-        if input_target and os.path.isfile(input_target):
-            file_to_open = input_target
-        elif os.path.isfile("input.txt"):
-            file_to_open = "input.txt"
-        elif os.path.isfile("paper.txt"):
-            file_to_open = "paper.txt"
-            
-        if file_to_open:
-            print(f"[*] Reading input file: {file_to_open}")
-            link_items = load_links_from_json(file_to_open)
-            print(f"[*] Found {len(link_items)} link(s) to process.")
-            process_links(link_items, headless=is_headless, disable_images=False)
-        else:
-            print(f"[*] No input file provided. Using default Google Scholar search query URL...")
-            link_items = scrape_google_scholar_query(DEFAULT_SEARCH_URL, headless=is_headless)
-            process_links(link_items, headless=is_headless, disable_images=False)
+        print(f"[*] Requesting papers directly from Google Scholar search term:")
+        print(f"    {DEFAULT_SEARCH_URL}\n")
+        link_items = scrape_google_scholar_query(DEFAULT_SEARCH_URL, headless=is_headless)
+        process_links(link_items, headless=is_headless, disable_images=False)
