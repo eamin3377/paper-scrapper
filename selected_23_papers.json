@@ -1,0 +1,163 @@
+[
+  {
+    "SL NO.": 1,
+    "Title": "AVFakeNet: A unified end-to-end Dense Swin Transformer deep learning model for audio–visual​ deepfakes detection",
+    "Published Year": "2023",
+    "Transformer Model Used": "Dense Swin Transformer",
+    "Paper Link": "https://www.sciencedirect.com/science/article/pii/S1568494623001424"
+  },
+  {
+    "SL NO.": 2,
+    "Title": "VGG-TSwinformer: Transformer-based deep learning model for early Alzheimer's disease prediction",
+    "Published Year": "2023",
+    "Transformer Model Used": "VGG-TSwinformer (Swin Transformer)",
+    "Paper Link": "https://www.sciencedirect.com/science/article/pii/S0169260722006721"
+  },
+  {
+    "SL NO.": 3,
+    "Title": "Extended vision transformer (ExViT) for land use and land cover classification: A multimodal deep learning framework",
+    "Published Year": "2023",
+    "Transformer Model Used": "Extended Vision Transformer (ExViT)",
+    "Paper Link": "https://ieeexplore.ieee.org/abstract/document/10147258/"
+  },
+  {
+    "SL NO.": 4,
+    "Title": "A deep learning based approach for automated plant disease classification using vision transformer",
+    "Published Year": "2022",
+    "Transformer Model Used": "Vision Transformer (ViT)",
+    "Paper Link": "https://www.nature.com/articles/s41598-022-15163-0"
+  },
+  {
+    "SL NO.": 5,
+    "Title": "A novel CNN-ViT-based deep learning model for early skin cancer diagnosis",
+    "Published Year": "2025",
+    "Transformer Model Used": "CNN-ViT (MetaFormer)",
+    "Paper Link": "https://www.sciencedirect.com/science/article/pii/S1746809425001387"
+  },
+  {
+    "SL NO.": 6,
+    "Title": "A survey of the vision transformers and their CNN-transformer based variants",
+    "Published Year": "2023",
+    "Transformer Model Used": "CNN-Transformer / Vision Transformer Variants",
+    "Paper Link": "https://link.springer.com/article/10.1007/s10462-023-10595-0"
+  },
+  {
+    "SL NO.": 7,
+    "Title": "MaxCerVixT: A novel lightweight vision transformer-based Approach for precise cervical cancer detection",
+    "Published Year": "2024",
+    "Transformer Model Used": "Multi-Axis Vision Transformer (MaxViT)",
+    "Paper Link": "https://www.sciencedirect.com/science/article/pii/S0950705124001175"
+  },
+  {
+    "SL NO.": 8,
+    "Title": "Deep learning and transformer approaches for UAV-based wildfire detection and segmentation",
+    "Published Year": "2022",
+    "Transformer Model Used": "TransUNet / Vision Transformer (UAV Autonomous System)",
+    "Paper Link": "https://www.mdpi.com/1424-8220/22/5/1977"
+  },
+  {
+    "SL NO.": 9,
+    "Title": "Prediction of electric vehicles charging demand: A transformer-based deep learning approach",
+    "Published Year": "2023",
+    "Transformer Model Used": "Transformer (EV Autonomous Transportation)",
+    "Paper Link": "https://www.mdpi.com/2071-1050/15/3/2105"
+  },
+  {
+    "SL NO.": 10,
+    "Title": "Deep transformer models for time series forecasting: The influenza prevalence case",
+    "Published Year": "2020",
+    "Transformer Model Used": "Deep Time-Series Transformer",
+    "Paper Link": "https://arxiv.org/abs/2001.08317"
+  },
+  {
+    "SL NO.": 11,
+    "Title": "A time series transformer based method for the rotating machinery fault diagnosis",
+    "Published Year": "2022",
+    "Transformer Model Used": "Time-Series Transformer",
+    "Paper Link": "https://www.sciencedirect.com/science/article/pii/S0925231222005112"
+  },
+  {
+    "SL NO.": 12,
+    "Title": "A transformer-based approach combining deep learning network and spatial-temporal information for raw EEG classification",
+    "Published Year": "2022",
+    "Transformer Model Used": "Spatial-Temporal Attention Transformer",
+    "Paper Link": "https://ieeexplore.ieee.org/abstract/document/9845479/"
+  },
+  {
+    "SL NO.": 13,
+    "Title": "Learning to encode position for transformer with continuous dynamical model",
+    "Published Year": "2020",
+    "Transformer Model Used": "Dynamical Position-Encoded Transformer (FLOATER)",
+    "Paper Link": "http://proceedings.mlr.press/v119/liu20n.html"
+  },
+  {
+    "SL NO.": 14,
+    "Title": "Anomaly VAE-transformer: A deep learning approach for anomaly detection in decentralized finance",
+    "Published Year": "2023",
+    "Transformer Model Used": "Anomaly VAE-Transformer",
+    "Paper Link": "https://ieeexplore.ieee.org/abstract/document/10244206/"
+  },
+  {
+    "SL NO.": 15,
+    "Title": "Transformer-based deep learning models for adsorption capacity prediction of heavy metal ions toward biochar-based adsorbents",
+    "Published Year": "2024",
+    "Transformer Model Used": "Tab-Transformer",
+    "Paper Link": "https://www.sciencedirect.com/science/article/pii/S0304389423020575"
+  },
+  {
+    "SL NO.": 16,
+    "Title": "Deep learning approach towards accurate state of charge estimation for lithium-ion batteries using self-supervised transformer model",
+    "Published Year": "2021",
+    "Transformer Model Used": "Self-Supervised Transformer",
+    "Paper Link": "https://www.nature.com/articles/s41598-021-98915-8"
+  },
+  {
+    "SL NO.": 17,
+    "Title": "Earthquake transformer—an attentive deep-learning model for simultaneous earthquake detection and phase picking",
+    "Published Year": "2020",
+    "Transformer Model Used": "Earthquake Transformer (Attentive Hierarchical)",
+    "Paper Link": "https://www.nature.com/articles/s41467-020-17591-w"
+  },
+  {
+    "SL NO.": 18,
+    "Title": "Transformer encoder with multiscale deep learning for pain classification using physiological signals",
+    "Published Year": "2023",
+    "Transformer Model Used": "Transformer Encoder (Multiscale Attention)",
+    "Paper Link": "https://www.frontiersin.org/journals/physiology/articles/10.3389/fphys.2023.1294577/full"
+  },
+  {
+    "SL NO.": 19,
+    "Title": "The NLP cookbook: modern recipes for transformer based deep learning architectures",
+    "Published Year": "2021",
+    "Transformer Model Used": "Transformer / BERT / NLP Architectures",
+    "Paper Link": "https://ieeexplore.ieee.org/abstract/document/9422763/"
+  },
+  {
+    "SL NO.": 20,
+    "Title": "Transformer-based deep learning model for the diagnosis of suspected lung cancer in primary care based on electronic health record data",
+    "Published Year": "2024",
+    "Transformer Model Used": "MedAlbert (Transformer-based)",
+    "Paper Link": "https://www.thelancet.com/journals/ebiom/article/PIIS2352-3964(24)00478-X/fulltext"
+  },
+  {
+    "SL NO.": 21,
+    "Title": "Visible and infrared image fusion using deep learning",
+    "Published Year": "2023",
+    "Transformer Model Used": "Multimodal Fusion Transformer",
+    "Paper Link": "https://www.computer.org/csdl/api/v1/periodical/trans/tp/2023/08/10088423/1LW4nNfycOQ/download-article/pdf"
+  },
+  {
+    "SL NO.": 22,
+    "Title": "Colossal-ai: A unified deep learning system for large-scale parallel training",
+    "Published Year": "2023",
+    "Transformer Model Used": "Large-Scale Parallel Transformer (Colossal-AI)",
+    "Paper Link": "https://dl.acm.org/doi/abs/10.1145/3605573.3605613"
+  },
+  {
+    "SL NO.": 23,
+    "Title": "Transformer-based deep learning for predicting protein properties in the life sciences",
+    "Published Year": "2023",
+    "Transformer Model Used": "Protein Transformer (Bio-molecular)",
+    "Paper Link": "https://elifesciences.org/articles/82819"
+  }
+]

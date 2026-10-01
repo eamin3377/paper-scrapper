@@ -1,0 +1,24 @@
+﻿SL NO.,Title,Published Year,Transformer Model Used,Paper Link
+1,AVFakeNet: A unified end-to-end Dense Swin Transformer deep learning model for audio–visual​ deepfakes detection,2023,Dense Swin Transformer,https://www.sciencedirect.com/science/article/pii/S1568494623001424
+2,VGG-TSwinformer: Transformer-based deep learning model for early Alzheimer's disease prediction,2023,VGG-TSwinformer (Swin Transformer),https://www.sciencedirect.com/science/article/pii/S0169260722006721
+3,Extended vision transformer (ExViT) for land use and land cover classification: A multimodal deep learning framework,2023,Extended Vision Transformer (ExViT),https://ieeexplore.ieee.org/abstract/document/10147258/
+4,A deep learning based approach for automated plant disease classification using vision transformer,2022,Vision Transformer (ViT),https://www.nature.com/articles/s41598-022-15163-0
+5,A novel CNN-ViT-based deep learning model for early skin cancer diagnosis,2025,CNN-ViT (MetaFormer),https://www.sciencedirect.com/science/article/pii/S1746809425001387
+6,A survey of the vision transformers and their CNN-transformer based variants,2023,CNN-Transformer / Vision Transformer Variants,https://link.springer.com/article/10.1007/s10462-023-10595-0
+7,MaxCerVixT: A novel lightweight vision transformer-based Approach for precise cervical cancer detection,2024,Multi-Axis Vision Transformer (MaxViT),https://www.sciencedirect.com/science/article/pii/S0950705124001175
+8,Deep learning and transformer approaches for UAV-based wildfire detection and segmentation,2022,TransUNet / Vision Transformer (UAV Autonomous System),https://www.mdpi.com/1424-8220/22/5/1977
+9,Prediction of electric vehicles charging demand: A transformer-based deep learning approach,2023,Transformer (EV Autonomous Transportation),https://www.mdpi.com/2071-1050/15/3/2105
+10,Deep transformer models for time series forecasting: The influenza prevalence case,2020,Deep Time-Series Transformer,https://arxiv.org/abs/2001.08317
+11,A time series transformer based method for the rotating machinery fault diagnosis,2022,Time-Series Transformer,https://www.sciencedirect.com/science/article/pii/S0925231222005112
+12,A transformer-based approach combining deep learning network and spatial-temporal information for raw EEG classification,2022,Spatial-Temporal Attention Transformer,https://ieeexplore.ieee.org/abstract/document/9845479/
+13,Learning to encode position for transformer with continuous dynamical model,2020,Dynamical Position-Encoded Transformer (FLOATER),http://proceedings.mlr.press/v119/liu20n.html
+14,Anomaly VAE-transformer: A deep learning approach for anomaly detection in decentralized finance,2023,Anomaly VAE-Transformer,https://ieeexplore.ieee.org/abstract/document/10244206/
+15,Transformer-based deep learning models for adsorption capacity prediction of heavy metal ions toward biochar-based adsorbents,2024,Tab-Transformer,https://www.sciencedirect.com/science/article/pii/S0304389423020575
+16,Deep learning approach towards accurate state of charge estimation for lithium-ion batteries using self-supervised transformer model,2021,Self-Supervised Transformer,https://www.nature.com/articles/s41598-021-98915-8
+17,Earthquake transformer—an attentive deep-learning model for simultaneous earthquake detection and phase picking,2020,Earthquake Transformer (Attentive Hierarchical),https://www.nature.com/articles/s41467-020-17591-w
+18,Transformer encoder with multiscale deep learning for pain classification using physiological signals,2023,Transformer Encoder (Multiscale Attention),https://www.frontiersin.org/journals/physiology/articles/10.3389/fphys.2023.1294577/full
+19,The NLP cookbook: modern recipes for transformer based deep learning architectures,2021,Transformer / BERT / NLP Architectures,https://ieeexplore.ieee.org/abstract/document/9422763/
+20,Transformer-based deep learning model for the diagnosis of suspected lung cancer in primary care based on electronic health record data,2024,MedAlbert (Transformer-based),https://www.thelancet.com/journals/ebiom/article/PIIS2352-3964(24)00478-X/fulltext
+21,Visible and infrared image fusion using deep learning,2023,Multimodal Fusion Transformer,https://www.computer.org/csdl/api/v1/periodical/trans/tp/2023/08/10088423/1LW4nNfycOQ/download-article/pdf
+22,Colossal-ai: A unified deep learning system for large-scale parallel training,2023,Large-Scale Parallel Transformer (Colossal-AI),https://dl.acm.org/doi/abs/10.1145/3605573.3605613
+23,Transformer-based deep learning for predicting protein properties in the life sciences,2023,Protein Transformer (Bio-molecular),https://elifesciences.org/articles/82819
