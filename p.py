@@ -4691,6 +4691,13 @@ def scrape_google_scholar_query(search_url, max_pages=10, headless=False):
                 except Exception:
                     pass
 
+                snippet_text = ""
+                try:
+                    snip_elem = res.find_element(By.CSS_SELECTOR, "div.gs_rs")
+                    snippet_text = snip_elem.text.strip()
+                except Exception:
+                    pass
+
                 # Clean Title
                 clean_title = re.sub(r'^\[[A-Za-z0-9]+\]\s*', '', title).strip()
                 norm_title = re.sub(r'[^a-zA-Z0-9]', '', clean_title.lower())
@@ -4705,7 +4712,8 @@ def scrape_google_scholar_query(search_url, max_pages=10, headless=False):
                     "link": paper_link,
                     "authors": authors,
                     "year": pub_year,
-                    "source": source
+                    "source": source,
+                    "abstract": snippet_text
                 })
 
             # Check for next page
@@ -4749,7 +4757,7 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
 
     script_dir = os.path.dirname(os.path.abspath(__file__)) if '__file__' in globals() else os.getcwd()
     csv_filename = os.path.join(script_dir, "scraped_papers.csv")
-    fieldnames = ["SL NO.", "Title", "Published Year", "Transformer Model Used", "Paper Link", "Authors", "Abstract"]
+    fieldnames = ["SL NO.", "Title", "Published Year", "Transformer Model Used", "Paper Link"]
 
     written_count = 0
     seen_csv_titles = set()
@@ -4766,20 +4774,16 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
             else:
                 final_title = str(raw_title).strip()
 
-            raw_abstract = data_dict.get("abstract") if data_dict else None
-            # If abstract is missing, empty, bot challenge, or N/A, save the link on that abstract section
-            if not raw_abstract or not str(raw_abstract).strip() or str(raw_abstract).strip().lower() in ["n/a", "none", "abstract"] or any(bp in str(raw_abstract).lower() for bp in bot_phrases):
-                abstract = url_target
-            else:
-                abstract = str(raw_abstract).strip()
+            raw_abstract = data_dict.get("abstract") if data_dict else ""
+            clean_abstract = "" if any(bp in str(raw_abstract).lower() for bp in bot_phrases) else str(raw_abstract).strip()
 
             # Filter non-English papers
-            if not is_text_english(final_title, abstract):
+            if not is_text_english(final_title, clean_abstract):
                 print(f"[!] 🌐 Non-English paper detected ('{final_title[:45]}...'). Skipping from CSV as requested.")
                 return False
 
             # Detect Transformer Model Used from Title, Abstract, and Keywords
-            search_context = f"{final_title} {abstract}"
+            search_context = f"{final_title} {clean_abstract}"
             transformer_model = extract_transformer_models(search_context)
 
             # Runtime Deduplication: Ensure this paper has not already been written to CSV
@@ -4792,14 +4796,6 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
             if norm_u and norm_u in seen_csv_links:
                 print(f"[!] ⚠️ Duplicate paper URL detected ('{norm_u[:45]}...'). Skipping duplicate write.")
                 return False
-
-            raw_authors = data_dict.get("authors") if data_dict else None
-            if isinstance(raw_authors, list):
-                authors = ", ".join(str(a).strip() for a in raw_authors if str(a).strip())
-            elif raw_authors:
-                authors = str(raw_authors).strip()
-            else:
-                authors = "N/A"
 
             pub_year = data_dict.get("published_date") or data_dict.get("year") or "N/A" if data_dict else "N/A"
             pub_year = str(pub_year).strip()
@@ -4814,9 +4810,7 @@ def process_links(link_items, headless=False, disable_images=False, max_count=No
                             "Title": final_title,
                             "Published Year": pub_year,
                             "Transformer Model Used": transformer_model,
-                            "Paper Link": url_target,
-                            "Authors": authors,
-                            "Abstract": abstract
+                            "Paper Link": url_target
                         })
                         f.flush()
                     written = True
